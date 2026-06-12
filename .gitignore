@@ -1,0 +1,14 @@
+node_modules/
+.next/
+*.log
+.env
+.env.local
+.env*.local
+__pycache__/
+*.pyc
+*.db
+.pytest_cache/
+*.egg-info/
+tsconfig.tsbuildinfo
+.DS_Store
+desktop.ini
