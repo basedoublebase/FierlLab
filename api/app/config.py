@@ -17,6 +17,8 @@ class Settings(BaseSettings):
         # Tolerant voor copy-paste: quotes/spaties weg en het verouderde
         # postgres://-schema (o.a. Railway/Heroku) omzetten naar postgresql://.
         url = url.strip().strip('"').strip("'")
+        if not url:
+            return "sqlite:///./fierllab.db"
         if url.startswith("postgres://"):
             url = "postgresql://" + url[len("postgres://"):]
         return url
