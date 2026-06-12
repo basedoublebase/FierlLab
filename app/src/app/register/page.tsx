@@ -34,7 +34,7 @@ export default function RegisterPage() {
     <main className="auth-page">
       <div className="auth-card">
         <h1>Registreren</h1>
-        <p className="auth-subtitle">Maak een account voor Polsstok Tracker</p>
+        <p className="auth-subtitle">Maak een account voor FierlLab</p>
 
         <form onSubmit={handleRegister} className="auth-form">
           <div className="field-group">

@@ -1,7 +1,7 @@
 import { createServerClient } from "@supabase/ssr";
 import { cookies } from "next/headers";
 
-const BACKEND_BASE_URL = (process.env.POLSSTOK_BACKEND_URL ?? "http://127.0.0.1:8021").trim().replace(/\/+$/, "");
+const BACKEND_BASE_URL = (process.env.FIERLLAB_BACKEND_URL ?? "http://127.0.0.1:8021").trim().replace(/\/+$/, "");
 
 export function buildBackendUrl(path: string): string {
   const normalizedPath = path.startsWith("/") ? path : `/${path}`;

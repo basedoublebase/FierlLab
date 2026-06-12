@@ -1,4 +1,4 @@
-# Polsstok Tracker
+# FierlLab
 
 Persoonlijke web-app voor polsstokverspringen/fierljeppen: sprongen bijhouden per
 wedstrijd, automatische winddata en een fysica-gebaseerd theoretisch maximum per sprong.
@@ -15,24 +15,22 @@ api/   FastAPI backend (Railway) — profiel, schansen, wedstrijden, pogingen, w
 
 ## Lokaal draaien
 
-1. **Supabase**: maak een project op [supabase.com](https://supabase.com)
-   (Authentication → Providers → Email aan; e-mailbevestiging uit voor makkelijk testen).
-2. **Backend**:
-   ```
+1. **Backend**:
+   ```powershell
    cd api
    pip install -e .
    $env:SUPABASE_URL = "https://xxxx.supabase.co"
-   $env:SUPABASE_ANON_KEY = "eyJ..."
-   uvicorn app.main:app --port 8021
+   $env:SUPABASE_ANON_KEY = "sb_publishable_..."
+   python -m uvicorn app.main:app --port 8021
    ```
-3. **Frontend**:
-   ```
+2. **Frontend**:
+   ```powershell
    cd app
    npm install
-   # kopieer .env.local.example naar .env.local en vul de Supabase-waarden in
+   # .env.local bevat de Supabase-waarden (zie .env.local.example)
    npm run dev -- -p 3021
    ```
-4. Open http://localhost:3021, registreer een account en log in.
+3. Open http://localhost:3021, registreer een account en log in.
 
 ## Deploy
 
@@ -40,8 +38,8 @@ api/   FastAPI backend (Railway) — profiel, schansen, wedstrijden, pogingen, w
 - Nieuw project → deploy vanuit deze repo, **root directory `api/`**.
 - Environment variables:
   - `SUPABASE_URL` — https://xxxx.supabase.co
-  - `SUPABASE_ANON_KEY` — anon key van het Supabase-project
-  - `POLSSTOK_DATABASE_URL` — Postgres-URL (bijv. Supabase → Database → Connection string,
+  - `SUPABASE_ANON_KEY` — publishable key van het Supabase-project
+  - `FIERLLAB_DATABASE_URL` — Postgres-URL (bijv. Supabase → Database → Connection string,
     session pooler). Zonder deze variabele gebruikt de API een lokale SQLite-file
     (niet persistent op Railway!).
 
@@ -50,7 +48,7 @@ api/   FastAPI backend (Railway) — profiel, schansen, wedstrijden, pogingen, w
 - Environment variables:
   - `NEXT_PUBLIC_SUPABASE_URL`
   - `NEXT_PUBLIC_SUPABASE_ANON_KEY`
-  - `POLSSTOK_BACKEND_URL` — de publieke Railway-URL (https://...up.railway.app)
+  - `FIERLLAB_BACKEND_URL` — de publieke Railway-URL (https://...up.railway.app)
 
 ## Roadmap (uit de briefing)
 

@@ -6,9 +6,9 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
 class Settings(BaseSettings):
-    database_url: str = "sqlite:///./polsstok.db"
+    database_url: str = "sqlite:///./fierllab.db"
 
-    model_config = SettingsConfigDict(env_prefix="POLSSTOK_", extra="ignore")
+    model_config = SettingsConfigDict(env_prefix="FIERLLAB_", extra="ignore")
 
 
 @lru_cache

@@ -18,7 +18,7 @@ ALLOWED_ORIGINS = [
 
 
 def create_app() -> FastAPI:
-    app = FastAPI(title="Polsstok Tracker API", lifespan=lifespan)
+    app = FastAPI(title="FierlLab API", lifespan=lifespan)
     app.add_middleware(
         CORSMiddleware,
         allow_origins=ALLOWED_ORIGINS,

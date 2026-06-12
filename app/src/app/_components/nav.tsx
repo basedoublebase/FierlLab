@@ -19,8 +19,8 @@ export function AppNav() {
   return (
     <nav className="app-nav" aria-label="Hoofdnavigatie">
       <div className="app-nav-inner">
-        <Link className="app-nav-logo" href="/" aria-label="Polsstok Tracker home">
-          <img src="/icon.svg" alt="Polsstok Tracker" className="app-nav-logo-img" width={28} height={28} />
+        <Link className="app-nav-logo" href="/" aria-label="FierlLab home">
+          <img src="/icon.svg" alt="FierlLab" className="app-nav-logo-img" width={28} height={28} />
         </Link>
         <div className="app-nav-links">
           {NAV_LINKS.map((link) => (

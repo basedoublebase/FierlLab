@@ -32,7 +32,7 @@ export default function LoginPage() {
     <main className="auth-page">
       <div className="auth-card">
         <h1>Inloggen</h1>
-        <p className="auth-subtitle">Welkom terug bij Polsstok Tracker</p>
+        <p className="auth-subtitle">Welkom terug bij FierlLab</p>
 
         <form onSubmit={handleLogin} className="auth-form">
           <div className="field-group">

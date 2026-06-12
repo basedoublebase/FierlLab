@@ -2,8 +2,8 @@ import type { MetadataRoute } from "next";
 
 export default function manifest(): MetadataRoute.Manifest {
   return {
-    name: "Polsstok Tracker",
-    short_name: "Polsstok",
+    name: "FierlLab",
+    short_name: "FierlLab",
     description: "Sprong-resultaten, winddata en theoretisch maximum voor polsstokverspringen",
     start_url: "/",
     display: "standalone",

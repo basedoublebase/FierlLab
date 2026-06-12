@@ -6,13 +6,13 @@ import { AppNav } from "@/app/_components/nav";
 import { SwipeNav } from "@/app/_components/swipe-nav";
 
 export const metadata: Metadata = {
-  title: "Polsstok Tracker",
+  title: "FierlLab",
   description: "Sprong-resultaten, winddata en theoretisch maximum voor polsstokverspringen",
   icons: { icon: "/icon.svg" },
   appleWebApp: {
     capable: true,
     statusBarStyle: "default",
-    title: "Polsstok",
+    title: "FierlLab",
   },
 };
 
