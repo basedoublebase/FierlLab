@@ -3,6 +3,7 @@ from __future__ import annotations
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
+from app.routes.pbholland import router as pbholland_router
 from app.routes.profiel import router as profiel_router
 from app.routes.schansen import router as schansen_router
 from app.routes.wedstrijden import router as wedstrijden_router
@@ -30,6 +31,7 @@ def create_app() -> FastAPI:
     app.include_router(schansen_router)
     app.include_router(wedstrijden_router)
     app.include_router(wind_router)
+    app.include_router(pbholland_router)
 
     @app.get("/health")
     def health() -> dict:

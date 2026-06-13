@@ -1,34 +1,36 @@
 "use client";
 
+import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
-import { Trophy } from "lucide-react";
+import { MapPin, TrendingDown, TrendingUp, Trophy } from "lucide-react";
 
-import { type Profiel, type Wedstrijd, fetchProfiel, fetchWedstrijden } from "@/lib/api";
-import { formatDatum, seizoenVan } from "@/lib/date";
+import { type PbhStatistieken, fetchPbhStatistieken } from "@/lib/api";
+import { formatDatum } from "@/lib/date";
 
-type Sprongpunt = {
-  datum: string;
-  afstand: number;
-  schans: string;
-};
+function initialen(naam: string): string {
+  const delen = naam.trim().split(/\s+/);
+  if (delen.length === 0) return "?";
+  if (delen.length === 1) return delen[0].slice(0, 2).toUpperCase();
+  return (delen[0][0] + delen[delen.length - 1][0]).toUpperCase();
+}
 
 export default function StatistiekenPage() {
-  const [profiel, setProfiel] = useState<Profiel | null>(null);
-  const [wedstrijden, setWedstrijden] = useState<Wedstrijd[]>([]);
+  const [stats, setStats] = useState<PbhStatistieken | null>(null);
   const [laden, setLaden] = useState(true);
+  const [nietGekoppeld, setNietGekoppeld] = useState(false);
   const [fout, setFout] = useState<string | null>(null);
-  const [seizoen, setSeizoen] = useState<number | null>(null);
 
   useEffect(() => {
     let actief = true;
-    Promise.all([fetchProfiel(), fetchWedstrijden()])
-      .then(([p, w]) => {
-        if (!actief) return;
-        setProfiel(p);
-        setWedstrijden(w);
+    fetchPbhStatistieken()
+      .then((data) => {
+        if (actief) setStats(data);
       })
       .catch((e) => {
-        if (actief) setFout(e instanceof Error ? e.message : "Laden mislukt.");
+        if (!actief) return;
+        const msg = e instanceof Error ? e.message : "Laden mislukt.";
+        if (msg.toLowerCase().includes("gekoppeld")) setNietGekoppeld(true);
+        else setFout(msg);
       })
       .finally(() => {
         if (actief) setLaden(false);
@@ -38,249 +40,214 @@ export default function StatistiekenPage() {
     };
   }, []);
 
-  // Alle geldige sprongen, oplopend op datum.
-  const sprongen = useMemo<Sprongpunt[]>(() => {
-    const punten: Sprongpunt[] = [];
-    for (const w of wedstrijden) {
-      for (const p of w.pogingen) {
-        if ((p.afstand_m ?? 0) > 0) {
-          punten.push({ datum: w.datum, afstand: p.afstand_m as number, schans: w.schans.naam });
-        }
-      }
-    }
-    return punten.sort((a, b) => a.datum.localeCompare(b.datum));
-  }, [wedstrijden]);
-
-  const seizoenen = useMemo(
-    () => Array.from(new Set(sprongen.map((s) => seizoenVan(s.datum)))).sort((a, b) => b - a),
-    [sprongen]
-  );
-
-  const zichtbaar = useMemo(
-    () => (seizoen === null ? sprongen : sprongen.filter((s) => seizoenVan(s.datum) === seizoen)),
-    [sprongen, seizoen]
-  );
-
-  const stats = useMemo(() => {
-    if (zichtbaar.length === 0) return null;
-    const afstanden = zichtbaar.map((s) => s.afstand);
-    const beste = Math.max(...afstanden);
-    const gemiddelde = afstanden.reduce((a, b) => a + b, 0) / afstanden.length;
-    const wedstrijdenMet = new Set(
-      (seizoen === null ? wedstrijden : wedstrijden.filter((w) => seizoenVan(w.datum) === seizoen)).map(
-        (w) => w.id
-      )
-    ).size;
-    return {
-      beste,
-      gemiddelde: Math.round(gemiddelde * 100) / 100,
-      wedstrijden: wedstrijdenMet,
-      sprongen: zichtbaar.length,
-    };
-  }, [zichtbaar, wedstrijden, seizoen]);
-
-  // PR over alle data (niet gefilterd).
-  const pr = useMemo(() => {
-    let bestePunt: Sprongpunt | null = null;
-    for (const s of sprongen) {
-      if (bestePunt === null || s.afstand > bestePunt.afstand) bestePunt = s;
-    }
-    return bestePunt;
-  }, [sprongen]);
-
-  // Simpele SVG-lijngrafiek: beste sprong per wedstrijddatum.
+  // PR-verloop grafiek (lopend PR per seizoen).
   const grafiek = useMemo(() => {
-    const perDatum = new Map<string, number>();
-    for (const s of zichtbaar) {
-      const huidige = perDatum.get(s.datum);
-      if (huidige === undefined || s.afstand > huidige) perDatum.set(s.datum, s.afstand);
-    }
-    const punten = Array.from(perDatum.entries())
-      .map(([datum, afstand]) => ({ datum, afstand }))
-      .sort((a, b) => a.datum.localeCompare(b.datum));
-    if (punten.length === 0) return null;
-
+    if (!stats || stats.pr_per_seizoen.length === 0) return null;
+    const punten = stats.pr_per_seizoen.map((p) => ({ jaar: p.jaar, waarde: p.pr_tot }));
     const W = 600;
-    const H = 180;
-    const PAD = { l: 34, r: 10, t: 12, b: 22 };
-    const min = Math.min(...punten.map((p) => p.afstand));
-    const max = Math.max(...punten.map((p) => p.afstand));
+    const H = 190;
+    const PAD = { l: 34, r: 14, t: 14, b: 40 };
+    const waarden = punten.map((p) => p.waarde);
+    const min = Math.min(...waarden);
+    const max = Math.max(...waarden);
     const span = Math.max(0.5, max - min);
     const x = (i: number) =>
-      punten.length === 1
-        ? (W + PAD.l - PAD.r) / 2
-        : PAD.l + (i / (punten.length - 1)) * (W - PAD.l - PAD.r);
-    const y = (afstand: number) => PAD.t + (1 - (afstand - min) / span) * (H - PAD.t - PAD.b);
-    const pad = `M ${punten.map((p, i) => `${x(i).toFixed(1)} ${y(p.afstand).toFixed(1)}`).join(" L ")}`;
-    return { punten, W, H, PAD, min, max, x, y, pad };
-  }, [zichtbaar]);
+      punten.length === 1 ? (W + PAD.l - PAD.r) / 2 : PAD.l + (i / (punten.length - 1)) * (W - PAD.l - PAD.r);
+    const y = (w: number) => PAD.t + (1 - (w - min) / span) * (H - PAD.t - PAD.b);
+    const pad = `M ${punten.map((p, i) => `${x(i).toFixed(1)} ${y(p.waarde).toFixed(1)}`).join(" L ")}`;
+    // Toon maximaal ~8 jaarlabels zodat het niet overvol wordt.
+    const stap = Math.ceil(punten.length / 8);
+    return { punten, W, H, PAD, min, max, x, y, pad, stap };
+  }, [stats]);
+
+  // Afwijkingsbalken: schaal t.o.v. de grootste waarde.
+  const balken = useMemo(() => {
+    if (!stats) return null;
+    const items = [
+      { label: "PR overall", waarde: stats.pr_overall, sterk: true },
+      { label: "Seizoensrecord", waarde: stats.seizoensrecord?.afstand ?? null, sterk: false },
+      { label: "Gem. uitslag", waarde: stats.gemiddelde_uitslag, sterk: false },
+    ].filter((b): b is { label: string; waarde: number; sterk: boolean } => b.waarde !== null);
+    if (items.length === 0) return null;
+    const maxWaarde = Math.max(...items.map((b) => b.waarde));
+    return items.map((b) => ({ ...b, pct: Math.round((b.waarde / maxWaarde) * 100) }));
+  }, [stats]);
 
   if (laden) {
     return (
       <main className="shell">
         <div className="card loading-card">
-          <p className="muted">Laden…</p>
+          <p className="muted">Statistieken laden…</p>
         </div>
       </main>
     );
   }
 
+  if (nietGekoppeld) {
+    return (
+      <main className="shell">
+        <header className="hero">
+          <p className="eyebrow">Profiel &amp; cijfers</p>
+          <h1>Statistieken</h1>
+        </header>
+        <div className="card">
+          <div className="koppel-leeg">
+            <Trophy size={30} />
+            <p>
+              Koppel je pbholland-profiel om je officiële resultaten, PR-verloop en cijfers per schans te zien.
+            </p>
+            <Link href="/instellingen" className="primary-button" style={{ textDecoration: "none", display: "inline-flex", alignItems: "center", padding: "0 20px" }}>
+              Naar Instellingen
+            </Link>
+          </div>
+        </div>
+      </main>
+    );
+  }
+
+  if (fout || !stats) {
+    return (
+      <main className="shell">
+        <header className="hero">
+          <p className="eyebrow">Profiel &amp; cijfers</p>
+          <h1>Statistieken</h1>
+        </header>
+        <div className="banner error">{fout ?? "Geen data beschikbaar."}</div>
+      </main>
+    );
+  }
+
+  const subtitel = [stats.vereniging, stats.wedstrijdcategorie, stats.rugnummer ? `#${stats.rugnummer}` : null]
+    .filter(Boolean)
+    .join(" · ");
+
   return (
     <main className="shell">
-      <header className="hero">
-        <p className="eyebrow">Profiel &amp; cijfers</p>
-        <h1>Statistieken</h1>
-      </header>
-
-      {fout && <div className="banner error">{fout}</div>}
-
-      {/* PR-kaart */}
-      {pr && (
-        <div className="stat-grid" style={{ marginTop: 14 }}>
-          <div className="stat-card pr-card" style={{ gridColumn: "1 / -1" }}>
-            <Trophy size={34} className="pr-icoon" />
-            <div>
-              <div className="pr-waarde">{pr.afstand.toFixed(2)} m</div>
-              <div className="pr-label">
-                Persoonlijk record · {pr.schans}, {formatDatum(pr.datum)}
-              </div>
+      {/* Profielheader */}
+      <section className="card" style={{ marginTop: 0 }}>
+        <div className="profiel-head">
+          <span className="profiel-avatar">{initialen(stats.naam)}</span>
+          <div style={{ minWidth: 0 }}>
+            <div className="profiel-naam">{stats.naam}</div>
+            {subtitel && <div className="profiel-sub">{subtitel}</div>}
+            <div className="profiel-badges">
+              {stats.bond && <span className="profiel-badge bond">{stats.bond}{stats.categorie ? ` · ${stats.categorie}` : ""}</span>}
+              {stats.ranking !== null && <span className="profiel-badge ranking">Ranking {stats.ranking}</span>}
             </div>
           </div>
         </div>
-      )}
+      </section>
 
-      {/* Seizoensfilter */}
-      <div className="ts-chips" style={{ marginTop: 8 }}>
-        <button
-          type="button"
-          className={`ts-chip${seizoen === null ? " active" : ""}`}
-          onClick={() => setSeizoen(null)}
-        >
-          All-time
-        </button>
-        {seizoenen.map((jaar) => (
-          <button
-            key={jaar}
-            type="button"
-            className={`ts-chip${seizoen === jaar ? " active" : ""}`}
-            onClick={() => setSeizoen(jaar)}
-          >
-            {jaar}
-          </button>
-        ))}
+      {/* Kerncijfers */}
+      <div className="stat-grid" style={{ marginTop: 14 }}>
+        <div className="stat-card">
+          <span className="stat-label">Persoonlijk record</span>
+          <span className="stat-value">{stats.pr ? `${stats.pr.afstand.toFixed(2)}` : "—"}</span>
+          {stats.pr && <span className="stat-sub">{stats.pr.plaats}, {formatDatum(stats.pr.datum)}</span>}
+        </div>
+        <div className="stat-card">
+          <span className="stat-label">Seizoensrecord</span>
+          <span className="stat-value">{stats.seizoensrecord ? stats.seizoensrecord.afstand.toFixed(2) : "—"}</span>
+          {stats.seizoensrecord?.verschil !== null && stats.seizoensrecord?.verschil !== undefined && (
+            <span className={`stat-sub`} style={{ display: "inline-flex", alignItems: "center", gap: 3, color: stats.seizoensrecord.verschil >= 0 ? "var(--success)" : "var(--error)" }}>
+              {stats.seizoensrecord.verschil >= 0 ? <TrendingUp size={12} /> : <TrendingDown size={12} />}
+              {stats.seizoensrecord.verschil >= 0 ? "+" : ""}{stats.seizoensrecord.verschil.toFixed(2)} t.o.v. {stats.seizoensrecord.vorig_jaar}
+            </span>
+          )}
+        </div>
+        <div className="stat-card">
+          <span className="stat-label">Wedstrijden</span>
+          <span className="stat-value">{stats.aantal_wedstrijden}</span>
+          {stats.aantal_sprongen !== null && <span className="stat-sub">{stats.aantal_sprongen} sprongen</span>}
+        </div>
+        <div className="stat-card">
+          <span className="stat-label">Dagtitels</span>
+          <span className="stat-value">{stats.dagtitels ?? "—"}</span>
+          {stats.titels !== null && <span className="stat-sub">{stats.titels} titels</span>}
+        </div>
       </div>
 
-      {/* Statistieken */}
-      {stats ? (
-        <div className="stat-grid">
-          <div className="stat-card">
-            <span className="stat-label">Beste</span>
-            <span className="stat-value">{stats.beste.toFixed(2)} m</span>
-          </div>
-          <div className="stat-card">
-            <span className="stat-label">Gemiddelde</span>
-            <span className="stat-value">{stats.gemiddelde.toFixed(2)} m</span>
-            <span className="stat-sub">van geldige sprongen</span>
-          </div>
-          <div className="stat-card">
-            <span className="stat-label">Wedstrijden</span>
-            <span className="stat-value">{stats.wedstrijden}</span>
-          </div>
-          <div className="stat-card">
-            <span className="stat-label">Geldige sprongen</span>
-            <span className="stat-value">{stats.sprongen}</span>
-          </div>
-        </div>
-      ) : (
-        <div className="card">
-          <p className="muted">
-            Nog geen geldige sprongen{seizoen !== null ? ` in ${seizoen}` : ""}. Vul je eerste wedstrijd in
-            op het Invullen-scherm.
-          </p>
-        </div>
-      )}
-
-      {/* Grafiek */}
+      {/* PR-verloop per seizoen */}
       <section className="card">
         <div className="section-header">
-          <h2>Afstand over tijd</h2>
-          <p className="muted">Beste geldige sprong per wedstrijd.</p>
+          <h2 style={{ textTransform: "uppercase", letterSpacing: "0.04em", fontSize: "0.92rem" }}>PR-verloop per seizoen</h2>
         </div>
         {grafiek ? (
-          <>
-            <svg
-              className="ts-svg"
-              viewBox={`0 0 ${grafiek.W} ${grafiek.H}`}
-              role="img"
-              aria-label="Sprongafstand over tijd"
-            >
-              {[0, 0.5, 1].map((f) => {
-                const waarde = grafiek.min + f * (grafiek.max - grafiek.min);
-                const yy = grafiek.y(waarde);
-                return (
-                  <g key={f}>
-                    <line className="chart-grid" x1={grafiek.PAD.l} x2={grafiek.W - grafiek.PAD.r} y1={yy} y2={yy} />
-                    <text className="chart-tick" x={2} y={yy + 3}>
-                      {waarde.toFixed(1)}
-                    </text>
-                  </g>
-                );
-              })}
-              <path className="chart-lijn" d={grafiek.pad} />
-              {grafiek.punten.map((p, i) => (
-                <circle key={p.datum} className="chart-point" cx={grafiek.x(i)} cy={grafiek.y(p.afstand)} r={3.2} />
-              ))}
-              <text className="chart-tick" x={grafiek.PAD.l} y={grafiek.H - 6}>
-                {formatDatum(grafiek.punten[0].datum)}
-              </text>
-              <text
-                className="chart-tick"
-                x={grafiek.W - grafiek.PAD.r}
-                y={grafiek.H - 6}
-                textAnchor="end"
-              >
-                {formatDatum(grafiek.punten[grafiek.punten.length - 1].datum)}
-              </text>
-            </svg>
-          </>
+          <svg className="ts-svg" viewBox={`0 0 ${grafiek.W} ${grafiek.H}`} role="img" aria-label="PR-verloop per seizoen">
+            {[0, 0.5, 1].map((f) => {
+              const waarde = grafiek.min + f * (grafiek.max - grafiek.min);
+              const yy = grafiek.y(waarde);
+              return (
+                <g key={f}>
+                  <line className="chart-grid" x1={grafiek.PAD.l} x2={grafiek.W - grafiek.PAD.r} y1={yy} y2={yy} />
+                  <text className="chart-tick" x={2} y={yy + 3}>{waarde.toFixed(1)}</text>
+                </g>
+              );
+            })}
+            <path className="chart-lijn" d={grafiek.pad} />
+            {grafiek.punten.map((p, i) => (
+              <circle key={p.jaar} className="chart-point" cx={grafiek.x(i)} cy={grafiek.y(p.waarde)} r={3.4} />
+            ))}
+            {grafiek.punten.map((p, i) =>
+              i % grafiek.stap === 0 || i === grafiek.punten.length - 1 ? (
+                <g key={`lbl-${p.jaar}`}>
+                  <text className="chart-tick" x={grafiek.x(i)} y={grafiek.H - 22} textAnchor="middle">{p.jaar}</text>
+                  <text className="chart-tick" x={grafiek.x(i)} y={grafiek.H - 9} textAnchor="middle" style={{ fontWeight: 700 }}>{p.waarde.toFixed(2)}</text>
+                </g>
+              ) : null
+            )}
+          </svg>
         ) : (
-          <p className="chart-empty">Nog geen data voor de grafiek.</p>
+          <p className="chart-empty">Nog geen data.</p>
         )}
       </section>
 
-      {/* Profiel */}
-      {profiel && (
+      {/* Beste resultaten per schans */}
+      <section className="card">
+        <div className="section-header">
+          <h2 style={{ textTransform: "uppercase", letterSpacing: "0.04em", fontSize: "0.92rem" }}>Beste resultaten per schans</h2>
+        </div>
+        {stats.beste_per_schans.length === 0 ? (
+          <p className="chart-empty">Nog geen data.</p>
+        ) : (
+          <div>
+            {stats.beste_per_schans.map((s) => (
+              <div key={s.plaats} className="schans-rij">
+                <MapPin size={15} style={{ color: "var(--text-faint)", flexShrink: 0 }} />
+                <div className="schans-naam">
+                  {s.plaats}
+                  <div className="schans-datum">{formatDatum(s.datum)}</div>
+                </div>
+                <span className="schans-afstand">{s.afstand.toFixed(2)} m</span>
+              </div>
+            ))}
+          </div>
+        )}
+      </section>
+
+      {/* Gemiddelde afwijking */}
+      {balken && (
         <section className="card">
           <div className="section-header">
-            <h2>Springersprofiel</h2>
-            <p className="muted">Deze waarden voeden het fysica-model. Aanpassen kan bij Instellingen.</p>
+            <h2 style={{ textTransform: "uppercase", letterSpacing: "0.04em", fontSize: "0.92rem" }}>Gemiddelde afwijking</h2>
           </div>
-          <div className="metrics-grid">
-            <div className="metric-cell">
-              <span className="metric-label">Naam</span>
-              <span className="metric-value">{profiel.naam || "—"}</span>
+          {stats.gemiddelde_afwijking !== null && (
+            <div style={{ display: "flex", alignItems: "baseline", gap: 8, marginBottom: 8 }}>
+              <span className={`afwijking-waarde ${stats.gemiddelde_afwijking >= 0 ? "positief" : "negatief"}`}>
+                {stats.gemiddelde_afwijking >= 0 ? "+" : ""}{stats.gemiddelde_afwijking.toFixed(2)}
+              </span>
+              <span className="muted" style={{ fontSize: "0.85rem" }}>t.o.v. beste poging per wedstrijd</span>
             </div>
-            <div className="metric-cell">
-              <span className="metric-label">Geboortejaar</span>
-              <span className="metric-value">{profiel.geboortejaar ?? "—"}</span>
+          )}
+          {balken.map((b) => (
+            <div key={b.label} className="balk-rij">
+              <span className="balk-label">{b.label}</span>
+              <span className="balk-spoor">
+                <span className={`balk-vul${b.sterk ? " sterk" : ""}`} style={{ width: `${b.pct}%` }} />
+              </span>
+              <span className="balk-getal">{b.waarde.toFixed(2)}</span>
             </div>
-            <div className="metric-cell">
-              <span className="metric-label">Gewicht</span>
-              <span className="metric-value">{profiel.massa_kg} kg</span>
-            </div>
-            <div className="metric-cell">
-              <span className="metric-label">Stoklengte</span>
-              <span className="metric-value">{profiel.stoklengte_m} m</span>
-            </div>
-            <div className="metric-cell">
-              <span className="metric-label">Gestrekt</span>
-              <span className="metric-value">{profiel.springer_gestrekt_m} m</span>
-            </div>
-            <div className="metric-cell">
-              <span className="metric-label">Uitsprongstoot</span>
-              <span className="metric-value">{profiel.uitsprongstoot_ns} Ns</span>
-            </div>
-          </div>
+          ))}
         </section>
       )}
     </main>

@@ -988,6 +988,201 @@ select.text-input:focus {
   text-align: center;
 }
 
+/* ── Profielheader (statistieken) ────────────────────────────────────── */
+
+.profiel-head {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+}
+
+.profiel-avatar {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 56px;
+  height: 56px;
+  border-radius: 50%;
+  background: var(--accent-soft);
+  color: var(--accent);
+  font-size: 1.2rem;
+  font-weight: 700;
+  flex-shrink: 0;
+}
+
+.profiel-naam {
+  font-size: 1.5rem;
+  font-weight: 700;
+  letter-spacing: -0.02em;
+  line-height: 1.1;
+}
+
+.profiel-sub {
+  font-size: 0.9rem;
+  color: var(--text-soft);
+  margin-top: 2px;
+}
+
+.profiel-badges {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 8px;
+}
+
+.profiel-badge {
+  display: inline-flex;
+  align-items: center;
+  height: 24px;
+  padding: 0 10px;
+  border-radius: 999px;
+  font-size: 0.76rem;
+  font-weight: 600;
+}
+
+.profiel-badge.bond {
+  background: var(--accent-soft);
+  color: var(--accent);
+}
+
+.profiel-badge.ranking {
+  background: var(--success-bg);
+  color: var(--success);
+}
+
+/* ── Beste per schans ────────────────────────────────────────────────── */
+
+.schans-rij {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 13px 2px;
+  border-bottom: 1px solid var(--surface-muted);
+}
+
+.schans-rij:last-child {
+  border-bottom: none;
+}
+
+.schans-naam {
+  font-size: 0.98rem;
+  font-weight: 600;
+  flex: 1;
+  min-width: 0;
+}
+
+.schans-datum {
+  font-size: 0.78rem;
+  color: var(--text-faint);
+}
+
+.schans-afstand {
+  font-size: 1.1rem;
+  font-weight: 700;
+  color: var(--accent);
+  letter-spacing: -0.02em;
+}
+
+.wind-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  height: 24px;
+  padding: 0 9px;
+  border-radius: 999px;
+  background: var(--success-bg);
+  color: var(--success);
+  font-size: 0.76rem;
+  font-weight: 600;
+}
+
+.wind-knop {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  height: 26px;
+  padding: 0 10px;
+  border: 1px solid var(--line);
+  background: var(--surface);
+  border-radius: 999px;
+  color: var(--text-soft);
+  font-size: 0.76rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: border-color 120ms ease, color 120ms ease;
+}
+
+.wind-knop:hover:not(:disabled) {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
+.wind-knop:disabled {
+  opacity: 0.55;
+  cursor: default;
+}
+
+/* ── Afwijkingsbalken ────────────────────────────────────────────────── */
+
+.afwijking-waarde {
+  font-size: 2rem;
+  font-weight: 800;
+  letter-spacing: -0.03em;
+  line-height: 1;
+}
+
+.afwijking-waarde.negatief { color: var(--error); }
+.afwijking-waarde.positief { color: var(--success); }
+
+.balk-rij {
+  display: grid;
+  grid-template-columns: 100px 1fr auto;
+  align-items: center;
+  gap: 12px;
+  margin-top: 12px;
+}
+
+.balk-label {
+  font-size: 0.84rem;
+  color: var(--text-soft);
+}
+
+.balk-spoor {
+  height: 12px;
+  border-radius: 999px;
+  background: var(--surface-muted);
+  overflow: hidden;
+}
+
+.balk-vul {
+  height: 100%;
+  border-radius: 999px;
+  background: var(--accent);
+  opacity: 0.45;
+}
+
+.balk-vul.sterk {
+  opacity: 1;
+}
+
+.balk-getal {
+  font-size: 0.92rem;
+  font-weight: 700;
+  color: var(--accent);
+  min-width: 48px;
+  text-align: right;
+}
+
+.koppel-leeg {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 14px;
+  padding: 40px 24px;
+  text-align: center;
+  color: var(--text-soft);
+}
+
 /* ── Pogingen (invullen) ─────────────────────────────────────────────── */
 
 .poging-card {

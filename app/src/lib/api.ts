@@ -218,6 +218,47 @@ export async function deletePoging(id: number): Promise<void> {
   return deleteRequest(`/pogingen/${id}`);
 }
 
+// ── pbholland ────────────────────────────────────────────────────────────
+
+export type PbhPrPerSeizoen = { jaar: number; seizoensbeste: number; pr_tot: number };
+export type PbhBesteSchans = { plaats: string; afstand: number; datum: string };
+
+export type PbhStatistieken = {
+  id_persoon: number;
+  id_springer: number | null;
+  naam: string;
+  vereniging: string;
+  woonplaats: string;
+  categorie: string;
+  wedstrijdcategorie: string;
+  rugnummer: string;
+  bond: string;
+  ranking: number | null;
+  titels: number | null;
+  dagtitels: number | null;
+  pr_overall: number | null;
+  aantal_wedstrijden: number;
+  aantal_sprongen: number | null;
+  pr: { afstand: number; datum: string; plaats: string } | null;
+  seizoensrecord: { afstand: number; jaar: number; verschil: number | null; vorig_jaar: number | null } | null;
+  pr_per_seizoen: PbhPrPerSeizoen[];
+  beste_per_schans: PbhBesteSchans[];
+  gemiddelde_uitslag: number | null;
+  gemiddelde_afwijking: number | null;
+};
+
+export async function fetchPbhStatistieken(): Promise<PbhStatistieken> {
+  const response = await apiFetch("/pbholland/statistieken", { cache: "no-store" });
+  return parseJson<PbhStatistieken>(response);
+}
+
+export async function previewPbhProfiel(idPersoon: number, naam?: string): Promise<PbhStatistieken> {
+  const params = new URLSearchParams({ id_persoon: String(idPersoon) });
+  if (naam) params.set("naam", naam);
+  const response = await apiFetch(`/pbholland/preview?${params.toString()}`, { cache: "no-store" });
+  return parseJson<PbhStatistieken>(response);
+}
+
 export async function fetchWind(schansId: number, timestamp: string): Promise<WindResult> {
   const response = await apiFetch(
     `/wind?schans_id=${schansId}&timestamp=${encodeURIComponent(timestamp)}`,
