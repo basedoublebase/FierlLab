@@ -47,8 +47,19 @@ KNMI-station-id staat al op het Schans-model voor een latere echte KNMI-integrat
 
 ## pbholland.com
 
-Nog niet geïntegreerd (Fase 3). Profiel heeft al `pbholland_id`, Wedstrijd heeft
-`pbholland_wedstrijd_id` zodat import later kan koppelen.
+Statistieken-integratie is live (`api/app/services/pbholland.py`). Een gebruiker
+koppelt zijn profiel in Instellingen door de pbholland-profiel-URL te plakken; daaruit
+halen we `id_persoon` (+ naam). De scraper haalt twee pagina's op:
+- `persooninfo?id_persoon=...` → profielvelden + het interne `id_springer`
+- `resultatenlijst_springer?id_springer=...` → alle wedstrijden + losse sprongen
+
+Daaruit worden PR, seizoensrecord, PR-verloop per seizoen, beste per schans en
+gemiddelden afgeleid (endpoints `/pbholland/preview` en `/pbholland/statistieken`,
+in-memory gecachet, 10 min). De Statistieken-pagina draait hier volledig op.
+
+**Let op:** `id_persoon` (op het Profiel als `pbholland_id`) ≠ `id_springer` (intern,
+wordt live uit de persoonspagina geparsed). Wedstrijd heeft `pbholland_wedstrijd_id`
+voor latere resultaat-import.
 
 ## Lokaal draaien
 
