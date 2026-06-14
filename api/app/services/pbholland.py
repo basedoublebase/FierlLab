@@ -129,6 +129,7 @@ def parse_resultaten(pagina: str, naam: str) -> list[dict]:
             g = _eerste_getal(c)
             if g is not None:
                 sprongen.append(g)
+        wid = re.search(r"id_wedstrijd=(\d+)", rij)
         resultaten.append(
             {
                 "datum": datum.isoformat(),
@@ -137,6 +138,8 @@ def parse_resultaten(pagina: str, naam: str) -> list[dict]:
                 "categorie": cellen[3] if len(cellen) > 3 else "",
                 "verste_afstand": verste,
                 "sprongen": sprongen,
+                "id_wedstrijd": int(wid.group(1)) if wid else None,
+                "plaats_finale": cellen[6] if len(cellen) > 6 and cellen[6] else None,
             }
         )
     return resultaten
@@ -223,6 +226,142 @@ def _statistieken(profiel: dict, resultaten: list[dict]) -> dict:
         "gemiddelde_uitslag": gem_uitslag,
         "gemiddelde_afwijking": gem_afwijking,
     }
+
+
+# ── Wedstrijden-overzicht + detail per wedstrijd ──────────────────────────
+
+_wedstrijden_cache: dict[int, tuple[dict, float]] = {}
+_detail_cache: dict[tuple[int, int], tuple[dict, float]] = {}
+
+
+def haal_wedstrijden(id_persoon: int, naam_hint: str | None = None) -> dict:
+    """Lichte wedstrijdenlijst voor de Wedstrijden-pagina (uit de resultatenlijst)."""
+    cached = _wedstrijden_cache.get(id_persoon)
+    if cached is not None and cached[1] > time.monotonic():
+        return cached[0]
+
+    persoon_pagina = _haal(f"{BASE}/persooninfo/?id_persoon={id_persoon}")
+    profiel = parse_profiel(persoon_pagina)
+    if not profiel["naam"] and naam_hint:
+        profiel["naam"] = naam_hint.replace("_", " ")
+
+    wedstrijden: list[dict] = []
+    if profiel["id_springer"]:
+        res_pagina = _haal(f"{BASE}/resultatenlijst_springer/?id_springer={profiel['id_springer']}")
+        for r in parse_resultaten(res_pagina, profiel["naam"]):
+            geldige = [s for s in r["sprongen"] if s > 0]
+            wedstrijden.append(
+                {
+                    "id_wedstrijd": r["id_wedstrijd"],
+                    "datum": r["datum"],
+                    "plaats": r["plaats"],
+                    "wedstrijd": r["wedstrijd"],
+                    "categorie": r["categorie"],
+                    "verste_afstand": r["verste_afstand"],
+                    "plaats_finale": r["plaats_finale"],
+                    "aantal_sprongen": len(r["sprongen"]),
+                    "gemiddelde": round(sum(geldige) / len(geldige), 2) if geldige else None,
+                }
+            )
+
+    payload = {
+        "naam": profiel["naam"],
+        "id_persoon": id_persoon,
+        "id_springer": profiel["id_springer"],
+        "wedstrijden": wedstrijden,
+    }
+    if len(_wedstrijden_cache) > 200:
+        _wedstrijden_cache.clear()
+    _wedstrijden_cache[id_persoon] = (payload, time.monotonic() + _CACHE_TTL)
+    return payload
+
+
+def parse_meetgegevens(pagina: str) -> dict:
+    """Tijd, geldigheid, afwijking en landingsplaats uit een meetgegevens-pagina."""
+    velden: dict[str, str] = {}
+    for rij in re.findall(r"<tr>(.*?)</tr>", pagina, re.S):
+        cellen = _rij_cellen(rij)
+        if len(cellen) >= 2 and cellen[0]:
+            velden[cellen[0].lower()] = cellen[1]
+    return {
+        "tijd": velden.get("tijd"),
+        "geldig": velden.get("geldig"),
+        "sprong": velden.get("sprong"),
+        "afwijking": _eerste_getal(velden.get("afwijking", "")),
+        "landingsplaats": _eerste_getal(velden.get("landingsplaats", "")),
+    }
+
+
+def _attempt_label(index: int) -> str:
+    # Eerste 3 = voorronde, daarna finale (zelfde indeling als pbholland).
+    return f"Poging {index + 1}" if index < 3 else f"Finale {index - 2}"
+
+
+def haal_wedstrijd_detail(id_wedstrijd: int, id_persoon: int) -> dict:
+    """Volledige sprongtabel van één wedstrijd voor deze springer.
+
+    uitslaginfo levert de pogingen + (waar elektronisch gemeten) een
+    id_meetgegevens per poging; die detailpagina geeft tijd/afwijking/landingsplaats.
+    """
+    cache_key = (id_wedstrijd, id_persoon)
+    cached = _detail_cache.get(cache_key)
+    if cached is not None and cached[1] > time.monotonic():
+        return cached[0]
+
+    pagina = _haal(f"{BASE}/uitslaginfo/?id_wedstrijd={id_wedstrijd}")
+    pos = pagina.find(f"id_persoon={id_persoon}")
+    if pos == -1:
+        raise KeyError("Springer niet in deze uitslag gevonden.")
+    rstart = pagina.rfind("<tr", 0, pos)
+    rend = pagina.find("</tr>", pos)
+    rij = pagina[rstart:rend]
+
+    # Cellen mét hun eventuele meetgegevens-link.
+    cel_htmls = re.findall(r"<td[^>]*>(.*?)</td>", rij, re.S)
+    cellen = [_strip(c) for c in cel_htmls]
+    positie = cellen[0] if cellen else None
+    # Cel 0=positie, 1=naam, 2=type, 3=verste, 4+=pogingen.
+    pogingen = []
+    for i, ch in enumerate(cel_htmls[4:]):
+        afstand = _eerste_getal(_strip(ch))
+        mg = re.search(r"id_meetgegevens=(\d+)", ch)
+        poging = {
+            "label": _attempt_label(i),
+            "afstand": afstand if (afstand and afstand > 0) else None,
+            "geldig": bool(afstand and afstand > 0),
+            "id_meetgegevens": int(mg.group(1)) if mg else None,
+            "tijd": None,
+            "afwijking": None,
+            "landingsplaats": None,
+        }
+        if poging["id_meetgegevens"]:
+            try:
+                meet = parse_meetgegevens(_haal(f"{BASE}/digitalemeetgegevens_info/?id_meetgegevens={poging['id_meetgegevens']}"))
+                poging["tijd"] = meet["tijd"]
+                poging["afwijking"] = meet["afwijking"]
+                poging["landingsplaats"] = meet["landingsplaats"]
+                if meet["geldig"]:
+                    poging["geldig"] = meet["geldig"].lower() in ("ok", "geldig", "ja")
+            except (httpx.HTTPError, KeyError):
+                pass
+        pogingen.append(poging)
+
+    # Lege staart-pogingen (niet gesprongen) weglaten.
+    while pogingen and pogingen[-1]["afstand"] is None and pogingen[-1]["id_meetgegevens"] is None:
+        pogingen.pop()
+
+    geldige = [p["afstand"] for p in pogingen if p["afstand"]]
+    payload = {
+        "id_wedstrijd": id_wedstrijd,
+        "positie": positie,
+        "beste": max(geldige) if geldige else None,
+        "gemiddelde": round(sum(geldige) / len(geldige), 2) if geldige else None,
+        "pogingen": pogingen,
+    }
+    if len(_detail_cache) > 400:
+        _detail_cache.clear()
+    _detail_cache[cache_key] = (payload, time.monotonic() + _CACHE_TTL)
+    return payload
 
 
 def haal_statistieken(id_persoon: int, naam_hint: str | None = None) -> dict:

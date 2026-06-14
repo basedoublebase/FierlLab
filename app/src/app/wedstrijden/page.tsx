@@ -2,39 +2,42 @@
 
 import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
-import { CalendarDays, Flag, MapPin, Wind } from "lucide-react";
+import { ArrowLeft, ArrowRight, ChevronDown, MapPin, Trophy } from "lucide-react";
 
-import { type Wedstrijd, fetchWedstrijden } from "@/lib/api";
+import {
+  type PbhWedstrijd,
+  type PbhWedstrijdDetail,
+  fetchPbhWedstrijdDetail,
+  fetchPbhWedstrijden,
+} from "@/lib/api";
 import { formatDatum, seizoenVan } from "@/lib/date";
 
-function besteAfstand(wedstrijd: Wedstrijd): number | null {
-  const geldig = wedstrijd.pogingen.filter((p) => (p.afstand_m ?? 0) > 0);
-  if (geldig.length === 0) return null;
-  return Math.max(...geldig.map((p) => p.afstand_m as number));
-}
-
-function gemiddeldeWind(wedstrijd: Wedstrijd): number | null {
-  const metWind = wedstrijd.pogingen.filter((p) => p.wind_ms !== null);
-  if (metWind.length === 0) return null;
-  const som = metWind.reduce((a, p) => a + (p.wind_ms as number), 0);
-  return Math.round((som / metWind.length) * 10) / 10;
-}
-
 export default function WedstrijdenPage() {
-  const [wedstrijden, setWedstrijden] = useState<Wedstrijd[]>([]);
+  const [lijst, setLijst] = useState<PbhWedstrijd[]>([]);
   const [laden, setLaden] = useState(true);
+  const [nietGekoppeld, setNietGekoppeld] = useState(false);
   const [fout, setFout] = useState<string | null>(null);
-  const [seizoen, setSeizoen] = useState<number | null>(null);
-  const [schansFilter, setSchansFilter] = useState<number | null>(null);
+
+  const [categorie, setCategorie] = useState("alle");
+  const [schans, setSchans] = useState("alle");
+  const [seizoen, setSeizoen] = useState("alle");
+
+  const [open, setOpen] = useState<number | null>(null);
+  const [details, setDetails] = useState<Record<number, PbhWedstrijdDetail>>({});
+  const [detailLaden, setDetailLaden] = useState<number | null>(null);
+  const [detailFout, setDetailFout] = useState<Record<number, string>>({});
 
   useEffect(() => {
     let actief = true;
-    fetchWedstrijden()
+    fetchPbhWedstrijden()
       .then((data) => {
-        if (actief) setWedstrijden(data);
+        if (actief) setLijst(data.wedstrijden);
       })
       .catch((e) => {
-        if (actief) setFout(e instanceof Error ? e.message : "Laden mislukt.");
+        if (!actief) return;
+        const msg = e instanceof Error ? e.message : "Laden mislukt.";
+        if (msg.toLowerCase().includes("gekoppeld")) setNietGekoppeld(true);
+        else setFout(msg);
       })
       .finally(() => {
         if (actief) setLaden(false);
@@ -44,26 +47,87 @@ export default function WedstrijdenPage() {
     };
   }, []);
 
-  const seizoenen = useMemo(
-    () => Array.from(new Set(wedstrijden.map((w) => seizoenVan(w.datum)))).sort((a, b) => b - a),
-    [wedstrijden]
+  const categorieen = useMemo(
+    () => Array.from(new Set(lijst.map((w) => w.categorie).filter(Boolean))).sort(),
+    [lijst]
   );
-
-  const schansen = useMemo(() => {
-    const map = new Map<number, string>();
-    for (const w of wedstrijden) map.set(w.schans.id, w.schans.naam);
-    return Array.from(map.entries()).sort((a, b) => a[1].localeCompare(b[1]));
-  }, [wedstrijden]);
+  const schansen = useMemo(
+    () => Array.from(new Set(lijst.map((w) => w.plaats).filter(Boolean))).sort(),
+    [lijst]
+  );
+  const seizoenen = useMemo(
+    () => Array.from(new Set(lijst.map((w) => seizoenVan(w.datum)))).sort((a, b) => b - a),
+    [lijst]
+  );
 
   const gefilterd = useMemo(
     () =>
-      wedstrijden.filter(
+      lijst.filter(
         (w) =>
-          (seizoen === null || seizoenVan(w.datum) === seizoen) &&
-          (schansFilter === null || w.schans.id === schansFilter)
+          (categorie === "alle" || w.categorie === categorie) &&
+          (schans === "alle" || w.plaats === schans) &&
+          (seizoen === "alle" || String(seizoenVan(w.datum)) === seizoen)
       ),
-    [wedstrijden, seizoen, schansFilter]
+    [lijst, categorie, schans, seizoen]
   );
+
+  async function toggle(w: PbhWedstrijd) {
+    if (w.id_wedstrijd === null) return;
+    if (open === w.id_wedstrijd) {
+      setOpen(null);
+      return;
+    }
+    setOpen(w.id_wedstrijd);
+    if (!details[w.id_wedstrijd]) {
+      setDetailLaden(w.id_wedstrijd);
+      setDetailFout((p) => ({ ...p, [w.id_wedstrijd as number]: "" }));
+      try {
+        const d = await fetchPbhWedstrijdDetail(w.id_wedstrijd);
+        setDetails((p) => ({ ...p, [w.id_wedstrijd as number]: d }));
+      } catch (e) {
+        setDetailFout((p) => ({
+          ...p,
+          [w.id_wedstrijd as number]: e instanceof Error ? e.message : "Detail laden mislukt.",
+        }));
+      } finally {
+        setDetailLaden(null);
+      }
+    }
+  }
+
+  if (laden) {
+    return (
+      <main className="shell">
+        <div className="card loading-card">
+          <p className="muted">Wedstrijden laden…</p>
+        </div>
+      </main>
+    );
+  }
+
+  if (nietGekoppeld) {
+    return (
+      <main className="shell">
+        <header className="hero">
+          <p className="eyebrow">Overzicht</p>
+          <h1>Wedstrijden</h1>
+        </header>
+        <div className="card">
+          <div className="koppel-leeg">
+            <Trophy size={30} />
+            <p>Koppel je pbholland-profiel om je wedstrijden en sprongen te zien.</p>
+            <Link
+              href="/instellingen"
+              className="primary-button"
+              style={{ textDecoration: "none", display: "inline-flex", alignItems: "center", padding: "0 20px" }}
+            >
+              Naar Instellingen
+            </Link>
+          </div>
+        </div>
+      </main>
+    );
+  }
 
   return (
     <main className="shell">
@@ -74,101 +138,138 @@ export default function WedstrijdenPage() {
 
       {fout && <div className="banner error">{fout}</div>}
 
-      <div className="tegel-toolbar">
-        <div className="tegel-filters">
-          <button
-            type="button"
-            className={`tegel-filter${seizoen === null ? " active" : ""}`}
-            onClick={() => setSeizoen(null)}
-          >
-            Alle seizoenen
-          </button>
-          {seizoenen.map((jaar) => (
-            <button
-              key={jaar}
-              type="button"
-              className={`tegel-filter${seizoen === jaar ? " active" : ""}`}
-              onClick={() => setSeizoen(seizoen === jaar ? null : jaar)}
-            >
-              {jaar}
-            </button>
+      <div className="wed-filters">
+        <select className="text-input" value={categorie} onChange={(e) => setCategorie(e.target.value)}>
+          <option value="alle">Alle categorieën</option>
+          {categorieen.map((c) => (
+            <option key={c} value={c}>{c}</option>
           ))}
-        </div>
-        {schansen.length > 1 && (
-          <div className="tegel-filters">
-            <button
-              type="button"
-              className={`tegel-filter${schansFilter === null ? " active" : ""}`}
-              onClick={() => setSchansFilter(null)}
-            >
-              Alle schansen
-            </button>
-            {schansen.map(([id, naam]) => (
-              <button
-                key={id}
-                type="button"
-                className={`tegel-filter${schansFilter === id ? " active" : ""}`}
-                onClick={() => setSchansFilter(schansFilter === id ? null : id)}
-              >
-                {naam}
-              </button>
-            ))}
-          </div>
-        )}
+        </select>
+        <select className="text-input" value={schans} onChange={(e) => setSchans(e.target.value)}>
+          <option value="alle">Alle schansen</option>
+          {schansen.map((s) => (
+            <option key={s} value={s}>{s}</option>
+          ))}
+        </select>
+        <select className="text-input" value={seizoen} onChange={(e) => setSeizoen(e.target.value)}>
+          <option value="alle">Alle seizoenen</option>
+          {seizoenen.map((j) => (
+            <option key={j} value={String(j)}>{j}</option>
+          ))}
+        </select>
       </div>
 
-      {laden ? (
-        <div className="card loading-card">
-          <p className="muted">Laden…</p>
-        </div>
-      ) : gefilterd.length === 0 ? (
+      {gefilterd.length === 0 ? (
         <div className="tegel-empty">
-          <Flag size={28} />
-          <p>
-            {wedstrijden.length === 0
-              ? "Nog geen wedstrijden. Maak je eerste wedstrijd aan op het Invullen-scherm."
-              : "Geen wedstrijden binnen dit filter."}
-          </p>
+          <Trophy size={28} />
+          <p>Geen wedstrijden binnen dit filter.</p>
         </div>
       ) : (
-        <div className="tegel-grid">
-          {gefilterd.map((w) => {
-            const beste = besteAfstand(w);
-            const geldig = w.pogingen.filter((p) => (p.afstand_m ?? 0) > 0).length;
-            const wind = gemiddeldeWind(w);
-            return (
-              <Link key={w.id} href={`/wedstrijden/${w.id}`} className="tegel">
-                <div className="tegel-top">
-                  <span className="tegel-icon">
-                    <Flag size={16} />
-                  </span>
-                  <span className="status-pill">{w.categorie}</span>
-                  <span className="tegel-datum">
-                    <CalendarDays size={12} style={{ verticalAlign: "-2px" }} /> {formatDatum(w.datum)}
+        gefilterd.map((w) => {
+          const isOpen = open === w.id_wedstrijd;
+          const detail = w.id_wedstrijd !== null ? details[w.id_wedstrijd] : undefined;
+          const aanHetLaden = detailLaden === w.id_wedstrijd;
+          const dfout = w.id_wedstrijd !== null ? detailFout[w.id_wedstrijd] : undefined;
+          return (
+            <article key={`${w.id_wedstrijd}-${w.datum}`} className="card wed-kaart">
+              <button type="button" className="wed-kop" onClick={() => toggle(w)} aria-expanded={isOpen}>
+                <div className="wed-kop-tekst">
+                  <div className="wed-datum">{formatDatum(w.datum)}</div>
+                  <div className="wed-naam">{w.wedstrijd || w.plaats}</div>
+                  <span className="wed-plaats">
+                    <MapPin size={13} /> {w.plaats}
                   </span>
                 </div>
-                <h3 className="tegel-naam">{w.schans.naam}</h3>
-                <div>
-                  <span className="tegel-beste">{beste !== null ? `${beste.toFixed(2)} m` : "—"}</span>
-                  <div className="tegel-beste-sub">beste sprong</div>
-                </div>
-                <div className="tegel-meta">
-                  <span className="tegel-meta-item">
-                    <MapPin size={13} /> {w.schans.locatie || w.schans.naam}
+                <div className="wed-kop-rechts">
+                  <span className="status-pill">
+                    {w.categorie}
+                    {w.plaats_finale ? ` · ${w.plaats_finale}e` : ""}
                   </span>
-                  <span className="tegel-meta-item">
-                    {geldig} geldige {geldig === 1 ? "poging" : "pogingen"}
-                  </span>
-                  {wind !== null && (
-                    <span className="tegel-meta-item">
-                      <Wind size={13} /> {wind} m/s
-                    </span>
+                  {w.verste_afstand !== null && (
+                    <span className="schans-afstand">{w.verste_afstand.toFixed(2)} m</span>
                   )}
                 </div>
-              </Link>
-            );
-          })}
-        </div>
+                <ChevronDown size={18} className={`wed-chevron${isOpen ? " open" : ""}`} />
+              </button>
+
+              {isOpen && (
+                <div className="wed-body">
+                  {aanHetLaden && <div className="wed-detail-laden">Sprongen laden…</div>}
+                  {dfout && <div className="banner error">{dfout}</div>}
+                  {detail && (
+                    <>
+                      <table className="wed-tabel">
+                        <thead>
+                          <tr>
+                            <th>Poging</th>
+                            <th>Afstand</th>
+                            <th>Afwijking</th>
+                            <th>Landing</th>
+                            <th>Tijd</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {detail.pogingen.map((p, i) => (
+                            <tr key={i}>
+                              <td>{p.label}</td>
+                              <td>
+                                {p.afstand !== null ? (
+                                  <span className={`wed-afstand${detail.beste !== null && p.afstand === detail.beste ? " beste" : ""}`}>
+                                    {p.afstand.toFixed(2)}
+                                    {detail.beste !== null && p.afstand === detail.beste && <span className="wed-pr">beste</span>}
+                                  </span>
+                                ) : (
+                                  <span className="wed-ongeldig">ongeldig</span>
+                                )}
+                              </td>
+                              <td>
+                                {p.afwijking !== null ? (
+                                  <span className="afwijking-pijl">
+                                    {p.afwijking >= 0 ? <ArrowRight size={12} /> : <ArrowLeft size={12} />}
+                                    {Math.abs(p.afwijking).toFixed(2)}
+                                  </span>
+                                ) : (
+                                  "—"
+                                )}
+                              </td>
+                              <td>{p.landingsplaats !== null ? `${p.landingsplaats.toFixed(2)} m` : "—"}</td>
+                              <td>{p.tijd ?? "—"}</td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+
+                      <div className="wed-foot">
+                        <div className="wed-foot-cel">
+                          <span className="wed-foot-label">Beste sprong</span>
+                          <span className="wed-foot-waarde accent">
+                            {detail.beste !== null ? detail.beste.toFixed(2) : "—"}
+                          </span>
+                        </div>
+                        <div className="wed-foot-cel">
+                          <span className="wed-foot-label">Gemiddelde</span>
+                          <span className="wed-foot-waarde">
+                            {detail.gemiddelde !== null ? `${detail.gemiddelde.toFixed(2)} m` : "—"}
+                          </span>
+                        </div>
+                        <div className="wed-foot-cel">
+                          <span className="wed-foot-label">Positie</span>
+                          <span className="wed-foot-waarde">{detail.positie ? `${detail.positie}e` : "—"}</span>
+                        </div>
+                      </div>
+
+                      <p className="muted" style={{ fontSize: "0.74rem", marginTop: 10 }}>
+                        Afwijking: <ArrowRight size={11} style={{ verticalAlign: "-1px" }} /> naar rechts,{" "}
+                        <ArrowLeft size={11} style={{ verticalAlign: "-1px" }} /> naar links. Landing = afstand recht
+                        vooruit. Tijd/afwijking/landing alleen bij elektronisch gemeten sprongen.
+                      </p>
+                    </>
+                  )}
+                </div>
+              )}
+            </article>
+          );
+        })
       )}
     </main>
   );

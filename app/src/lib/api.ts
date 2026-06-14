@@ -263,6 +263,53 @@ export async function fetchPbhStatistieken(): Promise<PbhStatistieken> {
   return parseJson<PbhStatistieken>(response);
 }
 
+export type PbhWedstrijd = {
+  id_wedstrijd: number | null;
+  datum: string;
+  plaats: string;
+  wedstrijd: string;
+  categorie: string;
+  verste_afstand: number | null;
+  plaats_finale: string | null;
+  aantal_sprongen: number;
+  gemiddelde: number | null;
+};
+
+export type PbhWedstrijdenLijst = {
+  naam: string;
+  id_persoon: number;
+  id_springer: number | null;
+  wedstrijden: PbhWedstrijd[];
+};
+
+export type PbhPoging = {
+  label: string;
+  afstand: number | null;
+  geldig: boolean;
+  id_meetgegevens: number | null;
+  tijd: string | null;
+  afwijking: number | null;
+  landingsplaats: number | null;
+};
+
+export type PbhWedstrijdDetail = {
+  id_wedstrijd: number;
+  positie: string | null;
+  beste: number | null;
+  gemiddelde: number | null;
+  pogingen: PbhPoging[];
+};
+
+export async function fetchPbhWedstrijden(): Promise<PbhWedstrijdenLijst> {
+  const response = await apiFetch("/pbholland/wedstrijden", { cache: "no-store" });
+  return parseJson<PbhWedstrijdenLijst>(response);
+}
+
+export async function fetchPbhWedstrijdDetail(idWedstrijd: number): Promise<PbhWedstrijdDetail> {
+  const response = await apiFetch(`/pbholland/wedstrijd/${idWedstrijd}`, { cache: "no-store" });
+  return parseJson<PbhWedstrijdDetail>(response);
+}
+
 export async function previewPbhProfiel(idPersoon: number, naam?: string): Promise<PbhStatistieken> {
   const params = new URLSearchParams({ id_persoon: String(idPersoon) });
   if (naam) params.set("naam", naam);

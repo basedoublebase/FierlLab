@@ -1183,6 +1183,191 @@ select.text-input:focus {
   color: var(--text-soft);
 }
 
+/* ── Wedstrijdkaarten (pbholland-historie) ───────────────────────────── */
+
+.wed-filters {
+  display: grid;
+  gap: 10px;
+  margin-bottom: 16px;
+}
+
+.wed-kaart {
+  margin-top: 12px;
+  padding: 0;
+  overflow: hidden;
+}
+
+.wed-kop {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  padding: 16px 18px;
+  cursor: pointer;
+  background: none;
+  border: none;
+  width: 100%;
+  text-align: left;
+  color: inherit;
+}
+
+.wed-kop:hover {
+  background: var(--surface-subtle);
+}
+
+.wed-kop-tekst {
+  flex: 1;
+  min-width: 0;
+}
+
+.wed-datum {
+  font-size: 0.76rem;
+  color: var(--text-faint);
+}
+
+.wed-naam {
+  font-size: 1.02rem;
+  font-weight: 700;
+  letter-spacing: -0.01em;
+  margin: 2px 0;
+}
+
+.wed-plaats {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 0.84rem;
+  color: var(--text-soft);
+}
+
+.wed-kop-rechts {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 6px;
+  flex-shrink: 0;
+}
+
+.wed-chevron {
+  color: var(--text-faint);
+  transition: transform 160ms ease;
+  flex-shrink: 0;
+  align-self: center;
+}
+
+.wed-chevron.open {
+  transform: rotate(180deg);
+}
+
+.wed-body {
+  padding: 0 18px 16px;
+}
+
+.wed-tabel {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.88rem;
+}
+
+.wed-tabel th {
+  text-align: right;
+  font-size: 0.68rem;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--text-faint);
+  padding: 6px 8px;
+  border-bottom: 1px solid var(--line);
+}
+
+.wed-tabel th:first-child {
+  text-align: left;
+}
+
+.wed-tabel td {
+  text-align: right;
+  padding: 9px 8px;
+  border-bottom: 1px solid var(--surface-muted);
+}
+
+.wed-tabel td:first-child {
+  text-align: left;
+  font-weight: 600;
+}
+
+.wed-tabel tr:last-child td {
+  border-bottom: none;
+}
+
+.wed-afstand {
+  font-weight: 700;
+}
+
+.wed-afstand.beste {
+  color: var(--accent);
+}
+
+.wed-ongeldig {
+  color: var(--text-faint);
+  font-style: italic;
+}
+
+.wed-pr {
+  display: inline-block;
+  margin-left: 6px;
+  padding: 1px 6px;
+  border-radius: 999px;
+  background: var(--accent-soft);
+  color: var(--accent);
+  font-size: 0.66rem;
+  font-weight: 700;
+  vertical-align: 1px;
+}
+
+.afwijking-pijl {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+}
+
+.wed-foot {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 8px;
+  margin-top: 14px;
+}
+
+.wed-foot-cel {
+  padding: 12px;
+  border-radius: var(--radius-sm);
+  background: var(--surface-subtle);
+  box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.05);
+  text-align: center;
+}
+
+.wed-foot-label {
+  display: block;
+  font-size: 0.72rem;
+  color: var(--text-soft);
+  margin-bottom: 4px;
+}
+
+.wed-foot-waarde {
+  font-size: 1.15rem;
+  font-weight: 700;
+  letter-spacing: -0.02em;
+}
+
+.wed-foot-waarde.accent {
+  color: var(--accent);
+}
+
+.wed-detail-laden {
+  padding: 16px;
+  text-align: center;
+  font-size: 0.85rem;
+  color: var(--text-faint);
+}
+
 /* ── Pogingen (invullen) ─────────────────────────────────────────────── */
 
 .poging-card {
