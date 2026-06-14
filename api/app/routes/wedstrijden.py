@@ -10,6 +10,7 @@ from app.auth import CurrentUser
 from app.db import get_db_session
 from app.models.schans import Schans
 from app.models.wedstrijd import Poging, Wedstrijd
+from app.services.knmi import KnmiError, haal_knmi_wind
 from app.schemas.wedstrijd import (
     PogingCreateRequest,
     PogingResponse,
@@ -151,6 +152,44 @@ def update_poging(
     poging = _vind_poging(session, poging_id, user.id)
     for field, value in payload.model_dump(exclude_unset=True).items():
         setattr(poging, field, value)
+    session.commit()
+    session.refresh(poging)
+    return poging
+
+
+@router.post("/pogingen/{poging_id}/knmi-wind", response_model=PogingResponse)
+def knmi_wind_poging(
+    poging_id: int, user: CurrentUser, session: Session = Depends(get_db_session)
+) -> Poging:
+    """Haal on-demand KNMI-winddata op voor deze sprong en cache het resultaat."""
+    poging = _vind_poging(session, poging_id, user.id)
+
+    # Tweede klik = cache: niets opnieuw ophalen als er al KNMI-data is.
+    if poging.wind_station is not None:
+        return poging
+
+    wedstrijd = session.get(Wedstrijd, poging.wedstrijd_id)
+    schans = session.get(Schans, wedstrijd.schans_id) if wedstrijd else None
+    if schans is None or schans.lat is None or schans.lon is None:
+        raise HTTPException(
+            status_code=422,
+            detail="Deze schans heeft geen coördinaten; vul lat/lon in bij Instellingen.",
+        )
+
+    try:
+        wind = haal_knmi_wind(schans.lat, schans.lon, poging.timestamp)
+    except KnmiError as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
+
+    poging.wind_ms = wind["wind_ms"]
+    poging.windrichting_graden = wind["windrichting_graden"]
+    poging.windvlagen_ms = wind["windvlagen_ms"]
+    poging.wind_station = wind["wind_station"]
+    poging.wind_station_afstand_km = wind["wind_station_afstand_km"]
+    poging.wind_bron_utc = wind["wind_bron_utc"]
+    poging.wind_resolutie = wind["wind_resolutie"]
+    poging.wind_gevalideerd = wind["wind_gevalideerd"]
+    poging.wind_fetched_at = datetime.now(timezone.utc).replace(tzinfo=None)
     session.commit()
     session.refresh(poging)
     return poging

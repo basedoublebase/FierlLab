@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { Plus, Trash2, Wind } from "lucide-react";
+import { Plus, Trash2 } from "lucide-react";
 
 import {
   type Poging,
@@ -14,11 +14,11 @@ import {
   fetchProfiel,
   fetchSchansen,
   fetchWedstrijden,
-  fetchWind,
   updatePoging,
 } from "@/lib/api";
+import { WindPoging } from "@/app/_components/wind-poging";
 import { formatDatum, vandaagISO } from "@/lib/date";
-import { FYSICA_DEFAULTS, benutting, berekenSprongMax, kompasRichting } from "@/lib/fysica";
+import { FYSICA_DEFAULTS, benutting, berekenSprongMax } from "@/lib/fysica";
 
 const CATEGORIEEN = ["senioren", "junioren", "jongens", "dames", "meisjes"];
 
@@ -125,17 +125,8 @@ export default function InvullenPage() {
     setFout(null);
     try {
       const timestamp = new Date().toISOString();
-      const poging = await createPoging(wedstrijd.id, { timestamp });
-      // Wind automatisch ophalen voor dit tijdstip; niet blokkerend bij falen.
-      try {
-        const wind = await fetchWind(wedstrijd.schans.id, timestamp);
-        await updatePoging(poging.id, {
-          wind_ms: wind.wind_ms,
-          windrichting_graden: wind.windrichting_graden,
-        });
-      } catch {
-        // Geen winddata — poging blijft gewoon staan.
-      }
+      await createPoging(wedstrijd.id, { timestamp });
+      // Winddata haal je per sprong on-demand op via de KNMI-knop.
       await herlaad();
     } catch (e) {
       setFout(e instanceof Error ? e.message : "Poging toevoegen mislukt.");
@@ -343,7 +334,6 @@ export default function InvullenPage() {
                     : null;
                 const benut =
                   berekening && werkelijk !== null ? benutting(werkelijk, berekening.theoretisch_max_m) : null;
-                const kompas = kompasRichting(poging.windrichting_graden);
 
                 return (
                   <article key={poging.id} className="poging-card">
@@ -352,11 +342,8 @@ export default function InvullenPage() {
                       <span className="muted" style={{ fontSize: "0.84rem" }}>
                         Poging {poging.nummer}
                       </span>
-                      <span className="poging-wind">
-                        <Wind size={14} />
-                        {poging.wind_ms !== null
-                          ? `${poging.wind_ms} m/s${kompas ? ` ${kompas}` : ""}`
-                          : "geen winddata"}
+                      <span style={{ marginLeft: "auto" }}>
+                        <WindPoging poging={poging} onUpdate={() => herlaad()} />
                       </span>
                       <button
                         type="button"

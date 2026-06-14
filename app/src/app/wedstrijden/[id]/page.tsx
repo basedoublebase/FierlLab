@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { use, useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
-import { Wind } from "lucide-react";
+import { WindPoging } from "@/app/_components/wind-poging";
 
 import {
   type Profiel,
@@ -13,7 +13,7 @@ import {
   fetchWedstrijd,
 } from "@/lib/api";
 import { formatDatum, formatTijd } from "@/lib/date";
-import { FYSICA_DEFAULTS, benutting, berekenSprongMax, kompasRichting } from "@/lib/fysica";
+import { FYSICA_DEFAULTS, benutting, berekenSprongMax } from "@/lib/fysica";
 
 export default function WedstrijdDetailPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = use(params);
@@ -140,7 +140,6 @@ export default function WedstrijdDetailPage({ params }: { params: Promise<{ id: 
                 berekening && poging.afstand_m !== null && poging.afstand_m > 0
                   ? benutting(poging.afstand_m, berekening.theoretisch_max_m)
                   : null;
-              const kompas = kompasRichting(poging.windrichting_graden);
               return (
                 <article key={poging.id} className="poging-card">
                   <div className="poging-header">
@@ -148,11 +147,17 @@ export default function WedstrijdDetailPage({ params }: { params: Promise<{ id: 
                     <span className="muted" style={{ fontSize: "0.84rem" }}>
                       {formatTijd(poging.timestamp)}
                     </span>
-                    <span className="poging-wind">
-                      <Wind size={14} />
-                      {poging.wind_ms !== null
-                        ? `${poging.wind_ms} m/s${kompas ? ` ${kompas}` : ""}`
-                        : "geen winddata"}
+                    <span style={{ marginLeft: "auto" }}>
+                      <WindPoging
+                        poging={poging}
+                        onUpdate={(bijgewerkt) =>
+                          setWedstrijd((w) =>
+                            w
+                              ? { ...w, pogingen: w.pogingen.map((p) => (p.id === bijgewerkt.id ? bijgewerkt : p)) }
+                              : w
+                          )
+                        }
+                      />
                     </span>
                   </div>
                   <div className="berekening-grid">

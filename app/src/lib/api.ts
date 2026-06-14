@@ -30,6 +30,11 @@ export type Poging = {
   wind_ms: number | null;
   windrichting_graden: number | null;
   timestamp: string;
+  windvlagen_ms: number | null;
+  wind_station: string | null;
+  wind_station_afstand_km: number | null;
+  wind_resolutie: string | null;
+  wind_gevalideerd: boolean | null;
 };
 
 export type Wedstrijd = {
@@ -216,6 +221,12 @@ export async function updatePoging(
 export async function deletePoging(id: number): Promise<void> {
   invalidateWedstrijdenCache();
   return deleteRequest(`/pogingen/${id}`);
+}
+
+export async function fetchKnmiWind(pogingId: number): Promise<Poging> {
+  const response = await apiFetch(`/pogingen/${pogingId}/knmi-wind`, { method: "POST" });
+  invalidateWedstrijdenCache();
+  return parseJson<Poging>(response);
 }
 
 // ── pbholland ────────────────────────────────────────────────────────────

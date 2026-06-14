@@ -17,6 +17,11 @@ class PogingResponse(BaseModel):
     wind_ms: float | None
     windrichting_graden: float | None
     timestamp: datetime
+    windvlagen_ms: float | None = None
+    wind_station: str | None = None
+    wind_station_afstand_km: float | None = None
+    wind_resolutie: str | None = None
+    wind_gevalideerd: bool | None = None
 
 
 class WedstrijdResponse(BaseModel):

@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from datetime import date, datetime
 
-from sqlalchemy import Date, DateTime, Float, ForeignKey, Integer, String
+from sqlalchemy import Boolean, Date, DateTime, Float, ForeignKey, Integer, String
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.db import Base
@@ -38,5 +38,14 @@ class Poging(Base):
     wind_ms: Mapped[float | None] = mapped_column(Float, nullable=True)
     windrichting_graden: Mapped[float | None] = mapped_column(Float, nullable=True)
     timestamp: Mapped[datetime] = mapped_column(DateTime)
+
+    # On-demand KNMI-winddata (per sprong opgehaald via knop, daarna gecachet).
+    windvlagen_ms: Mapped[float | None] = mapped_column(Float, nullable=True)
+    wind_station: Mapped[str | None] = mapped_column(String(80), nullable=True)
+    wind_station_afstand_km: Mapped[float | None] = mapped_column(Float, nullable=True)
+    wind_bron_utc: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    wind_resolutie: Mapped[str | None] = mapped_column(String(8), nullable=True)  # "10min" | "uur"
+    wind_gevalideerd: Mapped[bool | None] = mapped_column(Boolean, nullable=True)
+    wind_fetched_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
 
     wedstrijd: Mapped[Wedstrijd] = relationship(back_populates="pogingen")
