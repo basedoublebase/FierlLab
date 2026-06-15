@@ -1,6 +1,8 @@
 from __future__ import annotations
 
-from sqlalchemy import Float, ForeignKey, Integer, String
+from datetime import datetime
+
+from sqlalchemy import DateTime, Float, ForeignKey, Integer, String
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.db import Base
@@ -20,3 +22,5 @@ class Profiel(Base):
     stoklengte_m: Mapped[float] = mapped_column(Float, default=13.25)
     uitsprongstoot_ns: Mapped[float] = mapped_column(Float, default=120.0)
     pbholland_id: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    # Wanneer de pbholland-wedstrijdenlijst voor het laatst is gescrapet.
+    pbholland_lijst_fetched_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)

@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from datetime import datetime, timezone
+from datetime import date, datetime, timedelta, timezone
 from zoneinfo import ZoneInfo
 
 import httpx
@@ -11,6 +11,7 @@ from sqlalchemy.orm import Session
 
 from app.auth import CurrentUser
 from app.db import get_db_session
+from app.models.pbh import PbhSprong, PbhWedstrijd
 from app.models.profiel import Profiel
 from app.models.sprong_invoer import SprongInvoer
 from app.models.wind_cache import WindCache
@@ -18,6 +19,47 @@ from app.services import pbholland
 from app.services.knmi import KnmiError, haal_knmi_wind
 
 _NL_TZ = ZoneInfo("Europe/Amsterdam")
+
+# Verversbeleid (zie uitleg): lijst max 1×/dag, recente wedstrijd-details ~12u.
+_LIJST_TTL = timedelta(hours=24)
+_DETAIL_TTL = timedelta(hours=12)
+_RECENT_DAGEN = 30
+
+
+def _now() -> datetime:
+    return datetime.now(timezone.utc).replace(tzinfo=None)
+
+
+def _is_recent(datum_iso: str) -> bool:
+    try:
+        d = date.fromisoformat(datum_iso)
+    except (ValueError, TypeError):
+        return False
+    return d >= date.today() - timedelta(days=_RECENT_DAGEN)
+
+
+def _upsert_lijst(session: Session, user_id: int, wedstrijden: list[dict], nu: datetime) -> None:
+    bestaand = {
+        r.id_wedstrijd: r
+        for r in session.scalars(select(PbhWedstrijd).where(PbhWedstrijd.user_id == user_id)).all()
+    }
+    for w in wedstrijden:
+        wid = w.get("id_wedstrijd")
+        if wid is None:
+            continue  # niet-navigeerbare wedstrijd: niet persistent opslaan
+        rij = bestaand.get(wid)
+        if rij is None:
+            rij = PbhWedstrijd(user_id=user_id, id_wedstrijd=wid)
+            session.add(rij)
+        rij.datum = w["datum"]
+        rij.plaats = w["plaats"] or ""
+        rij.wedstrijd = w["wedstrijd"] or ""
+        rij.categorie = w["categorie"] or ""
+        rij.verste_afstand = w["verste_afstand"]
+        rij.plaats_finale = w["plaats_finale"]
+        rij.aantal_sprongen = w["aantal_sprongen"]
+        rij.gemiddelde = w["gemiddelde"]
+        rij.fetched_at = nu
 
 router = APIRouter(tags=["pbholland"])
 
@@ -64,56 +106,143 @@ def statistieken(
 
 @router.get("/pbholland/wedstrijden")
 def wedstrijden(user: CurrentUser, session: Session = Depends(get_db_session)) -> dict:
-    """Lichte wedstrijdenlijst voor de Wedstrijden-pagina."""
+    """Wedstrijdenlijst — uit de database, max 1×/dag opnieuw gescrapet."""
     profiel = _gekoppeld_profiel(user, session)
-    try:
-        return pbholland.haal_wedstrijden(profiel.pbholland_id, profiel.naam or None)
-    except httpx.HTTPError as exc:
-        raise HTTPException(status_code=503, detail="pbholland.com is tijdelijk niet bereikbaar.") from exc
+    nu = _now()
+    stale = (
+        profiel.pbholland_lijst_fetched_at is None
+        or (nu - profiel.pbholland_lijst_fetched_at) > _LIJST_TTL
+    )
+    heeft_rijen = session.scalars(
+        select(PbhWedstrijd.id).where(PbhWedstrijd.user_id == user.id).limit(1)
+    ).first() is not None
+
+    if stale:
+        try:
+            data = pbholland.haal_wedstrijden(profiel.pbholland_id, profiel.naam or None)
+        except httpx.HTTPError as exc:
+            if not heeft_rijen:
+                raise HTTPException(status_code=503, detail="pbholland.com is tijdelijk niet bereikbaar.") from exc
+        else:
+            _upsert_lijst(session, user.id, data["wedstrijden"], nu)
+            profiel.pbholland_lijst_fetched_at = nu
+            session.commit()
+
+    rijen = session.scalars(
+        select(PbhWedstrijd)
+        .where(PbhWedstrijd.user_id == user.id)
+        .order_by(PbhWedstrijd.datum.desc(), PbhWedstrijd.id_wedstrijd.desc())
+    ).all()
+    return {
+        "naam": profiel.naam,
+        "id_persoon": profiel.pbholland_id,
+        "wedstrijden": [
+            {
+                "id_wedstrijd": r.id_wedstrijd,
+                "datum": r.datum,
+                "plaats": r.plaats,
+                "wedstrijd": r.wedstrijd,
+                "categorie": r.categorie,
+                "verste_afstand": r.verste_afstand,
+                "plaats_finale": r.plaats_finale,
+                "aantal_sprongen": r.aantal_sprongen,
+                "gemiddelde": r.gemiddelde,
+            }
+            for r in rijen
+        ],
+    }
 
 
 @router.get("/pbholland/wedstrijd/{id_wedstrijd}")
 def wedstrijd_detail(
     id_wedstrijd: int, user: CurrentUser, session: Session = Depends(get_db_session)
 ) -> dict:
-    """Volledige sprongtabel (tijd, afwijking, landingsplaats) van één wedstrijd."""
+    """Sprongtabel van één wedstrijd — uit de database; recente wedstrijden ~12u ververst."""
     profiel = _gekoppeld_profiel(user, session)
-    try:
-        detail = pbholland.haal_wedstrijd_detail(id_wedstrijd, profiel.pbholland_id)
-        lijst = pbholland.haal_wedstrijden(profiel.pbholland_id, profiel.naam or None)
-    except KeyError as exc:
-        raise HTTPException(status_code=404, detail="Geen sprongen van jou in deze wedstrijd gevonden.") from exc
-    except httpx.HTTPError as exc:
-        raise HTTPException(status_code=503, detail="pbholland.com is tijdelijk niet bereikbaar.") from exc
+    nu = _now()
+    wed = session.scalars(
+        select(PbhWedstrijd).where(PbhWedstrijd.user_id == user.id, PbhWedstrijd.id_wedstrijd == id_wedstrijd)
+    ).first()
 
-    meta = next((w for w in lijst["wedstrijden"] if w["id_wedstrijd"] == id_wedstrijd), None)
+    nodig = (
+        wed is None
+        or wed.detail_fetched_at is None
+        or (_is_recent(wed.datum) and (nu - wed.detail_fetched_at) > _DETAIL_TTL)
+    )
+    if nodig:
+        try:
+            detail = pbholland.haal_wedstrijd_detail(id_wedstrijd, profiel.pbholland_id)
+            lijst = pbholland.haal_wedstrijden(profiel.pbholland_id, profiel.naam or None)
+        except KeyError as exc:
+            raise HTTPException(status_code=404, detail="Geen sprongen van jou in deze wedstrijd gevonden.") from exc
+        except httpx.HTTPError as exc:
+            if wed is None:
+                raise HTTPException(status_code=503, detail="pbholland.com is tijdelijk niet bereikbaar.") from exc
+        else:
+            meta = next((w for w in lijst["wedstrijden"] if w["id_wedstrijd"] == id_wedstrijd), None)
+            if wed is None:
+                wed = PbhWedstrijd(user_id=user.id, id_wedstrijd=id_wedstrijd, datum=(meta["datum"] if meta else ""))
+                session.add(wed)
+            if meta:
+                wed.datum = meta["datum"]; wed.plaats = meta["plaats"] or ""
+                wed.wedstrijd = meta["wedstrijd"] or ""; wed.categorie = meta["categorie"] or ""
+                wed.verste_afstand = meta["verste_afstand"]; wed.plaats_finale = meta["plaats_finale"]
+                wed.aantal_sprongen = meta["aantal_sprongen"]; wed.gemiddelde = meta["gemiddelde"]
+                wed.fetched_at = nu
+            wed.positie = detail["positie"]
+            wed.beste = detail["beste"]
+            wed.detail_fetched_at = nu
+            # Sprongen vervangen.
+            for oud in session.scalars(
+                select(PbhSprong).where(PbhSprong.user_id == user.id, PbhSprong.id_wedstrijd == id_wedstrijd)
+            ).all():
+                session.delete(oud)
+            session.flush()
+            for i, p in enumerate(detail["pogingen"]):
+                session.add(PbhSprong(
+                    user_id=user.id, id_wedstrijd=id_wedstrijd, poging_index=i,
+                    label=p["label"], afstand=p["afstand"], geldig=p["geldig"],
+                    id_meetgegevens=p["id_meetgegevens"], tijd=p["tijd"],
+                    tijd_schatting=p["tijd_schatting"], afwijking=p["afwijking"],
+                    landingsplaats=p["landingsplaats"],
+                ))
+            session.commit()
 
-    # Eigen handmatige stok-data per poging-index erbij voegen.
-    invoer = {
+    if wed is None:
+        raise HTTPException(status_code=404, detail="Wedstrijd niet gevonden.")
+
+    sprongen = session.scalars(
+        select(PbhSprong)
+        .where(PbhSprong.user_id == user.id, PbhSprong.id_wedstrijd == id_wedstrijd)
+        .order_by(PbhSprong.poging_index)
+    ).all()
+    stok = {
         r.poging_index: r
         for r in session.scalars(
-            select(SprongInvoer).where(
-                SprongInvoer.user_id == user.id, SprongInvoer.id_wedstrijd == id_wedstrijd
-            )
+            select(SprongInvoer).where(SprongInvoer.user_id == user.id, SprongInvoer.id_wedstrijd == id_wedstrijd)
         ).all()
     }
     pogingen = []
-    for i, p in enumerate(detail["pogingen"]):
-        rij = invoer.get(i)
+    for s in sprongen:
+        si = stok.get(s.poging_index)
         pogingen.append({
-            **p,
-            "poging_index": i,
-            "stok_op_m": rij.stok_op_m if rij else None,
-            "stok_uit_hand_m": rij.stok_uit_hand_m if rij else None,
+            "label": s.label, "afstand": s.afstand, "geldig": s.geldig,
+            "id_meetgegevens": s.id_meetgegevens, "tijd": s.tijd, "tijd_schatting": s.tijd_schatting,
+            "afwijking": s.afwijking, "landingsplaats": s.landingsplaats, "poging_index": s.poging_index,
+            "stok_op_m": si.stok_op_m if si else None,
+            "stok_uit_hand_m": si.stok_uit_hand_m if si else None,
         })
-
+    geldige = [s.afstand for s in sprongen if s.afstand]
     return {
-        **detail,
+        "id_wedstrijd": id_wedstrijd,
+        "positie": wed.positie,
+        "beste": wed.beste,
+        "gemiddelde": round(sum(geldige) / len(geldige), 2) if geldige else None,
         "pogingen": pogingen,
-        "datum": meta["datum"] if meta else None,
-        "plaats": meta["plaats"] if meta else None,
-        "wedstrijd": meta["wedstrijd"] if meta else None,
-        "categorie": meta["categorie"] if meta else None,
+        "datum": wed.datum,
+        "plaats": wed.plaats,
+        "wedstrijd": wed.wedstrijd,
+        "categorie": wed.categorie,
     }
 
 

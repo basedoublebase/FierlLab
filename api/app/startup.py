@@ -21,6 +21,9 @@ _TOEGEVOEGDE_KOLOMMEN: dict[str, dict[str, str]] = {
         "wind_gevalideerd": "BOOLEAN",
         "wind_fetched_at": "TIMESTAMP",
     },
+    "profielen": {
+        "pbholland_lijst_fetched_at": "TIMESTAMP",
+    },
 }
 
 
