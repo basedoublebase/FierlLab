@@ -12,7 +12,13 @@ import {
 import { formatDatum } from "@/lib/date";
 import { kompasRichting } from "@/lib/fysica";
 
-type WindStatus = { laden: boolean; ms?: number; graden?: number | null; fout?: boolean };
+type WindStatus = {
+  laden: boolean;
+  ms?: number;
+  graden?: number | null;
+  windtype?: string;
+  fout?: boolean;
+};
 
 // Dummy theoretisch maximum tot de exacte formules er zijn.
 function dummyMax(afstand: number): { max: number; benutting: number } {
@@ -53,7 +59,11 @@ export default function WedstrijdDetailPage({ params }: { params: Promise<{ id: 
       setWind((w) => ({ ...w, [i]: { laden: true } }));
       fetchPbhWind(detail.plaats as string, detail.datum as string, p.tijd as string)
         .then((res) => {
-          if (actief) setWind((w) => ({ ...w, [i]: { laden: false, ms: res.wind_ms, graden: res.windrichting_graden } }));
+          if (actief)
+            setWind((w) => ({
+              ...w,
+              [i]: { laden: false, ms: res.wind_ms, graden: res.windrichting_graden, windtype: res.windtype },
+            }));
         })
         .catch(() => {
           if (actief) setWind((w) => ({ ...w, [i]: { laden: false, fout: true } }));
@@ -155,7 +165,13 @@ export default function WedstrijdDetailPage({ params }: { params: Promise<{ id: 
                     <Wind size={15} style={{ color: "var(--text-faint)" }} />
                   )}
                 </div>
-                <div className="meet-sub">{!p.tijd ? "geen meting" : kompas ?? (w?.fout ? "niet beschikbaar" : "")}</div>
+                <div className="meet-sub">
+                  {!p.tijd
+                    ? "geen meting"
+                    : w?.fout
+                      ? "niet beschikbaar"
+                      : [kompas, w?.windtype].filter(Boolean).join(" · ")}
+                </div>
               </div>
               <div className="meet-cel">
                 <div className="meet-label">Tijd</div>

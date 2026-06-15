@@ -314,15 +314,19 @@ export async function fetchPbhWedstrijdDetail(idWedstrijd: number): Promise<PbhW
   return parseJson<PbhWedstrijdDetail>(response);
 }
 
-export async function fetchPbhWind(plaats: string, datum: string, tijd: string): Promise<WindResult & {
+export type PbhWind = WindResult & {
   windvlagen_ms: number | null;
   wind_station: string | null;
   wind_station_afstand_km: number | null;
   wind_resolutie: string | null;
-}> {
+  windtype?: "rugwind" | "tegenwind" | "zijwind";
+  orientatie_graden?: number;
+};
+
+export async function fetchPbhWind(plaats: string, datum: string, tijd: string): Promise<PbhWind> {
   const params = new URLSearchParams({ plaats, datum, tijd });
   const response = await apiFetch(`/pbholland/wind?${params.toString()}`, { cache: "no-store" });
-  return parseJson(response);
+  return parseJson<PbhWind>(response);
 }
 
 export async function previewPbhProfiel(idPersoon: number, naam?: string): Promise<PbhStatistieken> {

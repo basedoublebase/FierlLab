@@ -108,4 +108,9 @@ def pbholland_wind(plaats: str, datum: str, tijd: str, user: CurrentUser) -> dic
         wind = haal_knmi_wind(coords[0], coords[1], ts_utc)
     except KnmiError as exc:
         raise HTTPException(status_code=503, detail=str(exc)) from exc
+
+    tw = pbholland.windtype(wind.get("windrichting_graden"), plaats)
+    if tw is not None:
+        wind["windtype"] = tw["soort"]
+        wind["orientatie_graden"] = tw["orientatie_graden"]
     return wind

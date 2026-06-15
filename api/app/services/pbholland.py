@@ -40,6 +40,36 @@ PLAATS_COORDS: dict[str, tuple[float, float]] = {
 
 def coords_voor_plaats(plaats: str) -> tuple[float, float] | None:
     return PLAATS_COORDS.get(plaats.strip())
+
+
+# Oriëntatie/springrichting per schans, in graden t.o.v. het noorden,
+# gemeten van achterkant naar voorkant schans (de richting waarin je springt).
+SCHANS_ORIENTATIE: dict[str, float] = {
+    "Linschoten": 138,
+    "Vlist": 199,
+    "Kockengen": 71,
+    "Jaarsveld": 48,
+    "Zegveld": 42,
+    "Polsbroekerdam": 339,
+}
+
+
+def windtype(windrichting_graden: float | None, plaats: str) -> dict | None:
+    """Bepaal rug-/tegen-/zijwind t.o.v. de springrichting van de schans.
+
+    windrichting_graden = richting waar de wind VANDAAN komt (KNMI-conventie).
+    """
+    orientatie = SCHANS_ORIENTATIE.get(plaats.strip())
+    if orientatie is None or windrichting_graden is None:
+        return None
+    verschil = (windrichting_graden - orientatie) % 360
+    if verschil <= 45 or verschil >= 315:
+        soort = "tegenwind"  # wind komt van voren (uit de springrichting)
+    elif 135 <= verschil <= 225:
+        soort = "rugwind"  # wind komt van achteren
+    else:
+        soort = "zijwind"
+    return {"soort": soort, "orientatie_graden": orientatie}
 _HEADERS = {"User-Agent": "FierlLab/1.0 (persoonlijke sprongtracker)"}
 _TIMEOUT = 20
 
