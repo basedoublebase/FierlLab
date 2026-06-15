@@ -13,6 +13,7 @@ from app.auth import CurrentUser
 from app.db import get_db_session
 from app.models.profiel import Profiel
 from app.models.sprong_invoer import SprongInvoer
+from app.models.wind_cache import WindCache
 from app.services import pbholland
 from app.services.knmi import KnmiError, haal_knmi_wind
 
@@ -146,9 +147,22 @@ def zet_stok_invoer(
     return {"stok_op_m": rij.stok_op_m, "stok_uit_hand_m": rij.stok_uit_hand_m}
 
 
+def _voeg_windtype_toe(wind: dict, plaats: str) -> dict:
+    tw = pbholland.windtype(wind.get("windrichting_graden"), plaats)
+    if tw is not None:
+        wind["windtype"] = tw["soort"]
+        wind["orientatie_graden"] = tw["orientatie_graden"]
+    return wind
+
+
 @router.get("/pbholland/wind")
-def pbholland_wind(plaats: str, datum: str, tijd: str, user: CurrentUser) -> dict:
-    """KNMI-wind voor een pbholland-sprong (plaats + lokale datum/tijd)."""
+def pbholland_wind(
+    plaats: str, datum: str, tijd: str, user: CurrentUser, session: Session = Depends(get_db_session)
+) -> dict:
+    """KNMI-wind voor een pbholland-sprong (plaats + lokale datum/tijd).
+
+    Historische wind is onveranderlijk → permanent gecachet per locatie + 10-min-slot.
+    """
     coords = pbholland.coords_voor_plaats(plaats)
     if coords is None:
         raise HTTPException(status_code=422, detail=f"Geen coördinaten bekend voor schans '{plaats}'.")
@@ -157,13 +171,45 @@ def pbholland_wind(plaats: str, datum: str, tijd: str, user: CurrentUser) -> dic
     except ValueError as exc:
         raise HTTPException(status_code=400, detail="Ongeldige datum/tijd.") from exc
     ts_utc = lokaal.astimezone(timezone.utc)
+    # Cache-sleutel: UTC afgerond op 10 minuten (KNMI-resolutie).
+    slot = ts_utc.replace(minute=(ts_utc.minute // 10) * 10, second=0, microsecond=0)
+    slot_key = slot.strftime("%Y%m%d%H%M")
+
+    cached = session.scalars(
+        select(WindCache).where(WindCache.plaats == plaats, WindCache.slot_key == slot_key)
+    ).first()
+    if cached is not None:
+        return _voeg_windtype_toe(
+            {
+                "wind_ms": cached.wind_ms,
+                "windrichting_graden": cached.windrichting_graden,
+                "windvlagen_ms": cached.windvlagen_ms,
+                "wind_station": cached.wind_station,
+                "wind_station_afstand_km": cached.wind_station_afstand_km,
+                "wind_resolutie": cached.wind_resolutie,
+                "wind_gevalideerd": cached.wind_gevalideerd,
+                "bron": "cache",
+            },
+            plaats,
+        )
+
     try:
         wind = haal_knmi_wind(coords[0], coords[1], ts_utc)
     except KnmiError as exc:
         raise HTTPException(status_code=503, detail=str(exc)) from exc
 
-    tw = pbholland.windtype(wind.get("windrichting_graden"), plaats)
-    if tw is not None:
-        wind["windtype"] = tw["soort"]
-        wind["orientatie_graden"] = tw["orientatie_graden"]
-    return wind
+    session.add(
+        WindCache(
+            plaats=plaats,
+            slot_key=slot_key,
+            wind_ms=wind.get("wind_ms"),
+            windrichting_graden=wind.get("windrichting_graden"),
+            windvlagen_ms=wind.get("windvlagen_ms"),
+            wind_station=wind.get("wind_station"),
+            wind_station_afstand_km=wind.get("wind_station_afstand_km"),
+            wind_resolutie=wind.get("wind_resolutie"),
+            wind_gevalideerd=wind.get("wind_gevalideerd"),
+        )
+    )
+    session.commit()
+    return _voeg_windtype_toe(wind, plaats)
