@@ -27,8 +27,8 @@ _ANONIEME_KEY = "eyJvcmciOiI1ZTU1NGUxOTI3NGE5NjAwMDEyYTNlYjEiLCJpZCI6ImVlNDFjMWI
 API_BASE = "https://api.dataplatform.knmi.nl/open-data/v1/datasets"
 TENMIN_DATASET = "10-minute-in-situ-meteorological-observations"
 TENMIN_VERSION = "1.0"
-# Uur-fallback (te bevestigen met geregistreerde key).
-HOURLY_DATASET = os.getenv("KNMI_HOURLY_DATASET", "")
+# Uur-fallback voor sprongen >60 dagen oud (geverifieerd).
+HOURLY_DATASET = os.getenv("KNMI_HOURLY_DATASET", "hourly-in-situ-meteorological-observations")
 HOURLY_VERSION = os.getenv("KNMI_HOURLY_VERSION", "1.0")
 
 _ARCHIEF_DAGEN = 60
@@ -86,12 +86,25 @@ def _parse_dichtstbij(data: bytes, lat: float, lon: float) -> dict:
     import h5py  # zware import; alleen wanneer echt nodig
     import numpy as np
 
+    def _var(f, *namen):
+        # 10-min gebruikt dd/ff/gff; uurdataset gebruikt DD/FF/FX.
+        for n in namen:
+            if n in f:
+                return f[n][:, 0]
+        return None
+
     with h5py.File(io.BytesIO(data), "r") as f:
         slat = f["lat"][:]
         slon = f["lon"][:]
-        dd = f["dd"][:, 0]
-        ff = f["ff"][:, 0]
-        gff = f["gff"][:, 0] if "gff" in f else np.full_like(ff, np.nan)
+        dd = _var(f, "dd", "DD")
+        ff = _var(f, "ff", "FF", "FH")
+        gff = _var(f, "gff", "FX")
+        if ff is None:
+            raise KnmiError("KNMI-bestand bevat geen windsnelheid.")
+        if dd is None:
+            dd = np.full_like(ff, np.nan)
+        if gff is None:
+            gff = np.full_like(ff, np.nan)
         namen = [n.decode() if isinstance(n, bytes) else str(n) for n in f["stationname"][:]]
         tijd = float(f["time"][0])  # seconden sinds 1950-01-01
 
@@ -130,8 +143,10 @@ def haal_knmi_wind(lat: float, lon: float, ts: datetime) -> dict:
                 "geactiveerd (wacht op de geregistreerde KNMI-key)."
             )
         # Uur-fallback: zelfde tweestaps-fetch, uurresolutie.
-        slot = ts_utc.replace(minute=0, second=0, microsecond=0) + timedelta(hours=1)
-        filename = f"KMDS__OPER_P___1H_OBS_L2_{slot:%Y%m%d%H%M}.nc"
+        slot = ts_utc.replace(minute=0, second=0, microsecond=0)
+        if ts_utc.minute >= 30:
+            slot += timedelta(hours=1)
+        filename = f"hourly-observations-{slot:%Y%m%d-%H}.nc"
         try:
             dl = _download_url(HOURLY_DATASET, HOURLY_VERSION, filename)
             data = httpx.get(dl, timeout=40).content
