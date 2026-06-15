@@ -17,6 +17,7 @@ type WindStatus = {
   ms?: number;
   graden?: number | null;
   windtype?: string;
+  geschat?: boolean;
   fout?: boolean;
 };
 
@@ -55,14 +56,16 @@ export default function WedstrijdDetailPage({ params }: { params: Promise<{ id: 
     if (!detail || !detail.plaats || !detail.datum) return;
     let actief = true;
     detail.pogingen.forEach((p, i) => {
-      if (!p.tijd) return;
-      setWind((w) => ({ ...w, [i]: { laden: true } }));
-      fetchPbhWind(detail.plaats as string, detail.datum as string, p.tijd as string)
+      const tijd = p.tijd ?? p.tijd_schatting;
+      if (!tijd) return;
+      const geschat = !p.tijd;
+      setWind((w) => ({ ...w, [i]: { laden: true, geschat } }));
+      fetchPbhWind(detail.plaats as string, detail.datum as string, tijd)
         .then((res) => {
           if (actief)
             setWind((w) => ({
               ...w,
-              [i]: { laden: false, ms: res.wind_ms, graden: res.windrichting_graden, windtype: res.windtype },
+              [i]: { laden: false, ms: res.wind_ms, graden: res.windrichting_graden, windtype: res.windtype, geschat },
             }));
         })
         .catch(() => {
@@ -146,7 +149,7 @@ export default function WedstrijdDetailPage({ params }: { params: Promise<{ id: 
               <div className="meet-cel">
                 <div className="meet-label">Wind</div>
                 <div className="meet-waarde">
-                  {!p.tijd ? (
+                  {!p.tijd && !p.tijd_schatting ? (
                     "—"
                   ) : w?.laden ? (
                     <span className="muted" style={{ fontWeight: 400, fontSize: "0.9rem" }}>ophalen…</span>
@@ -166,22 +169,26 @@ export default function WedstrijdDetailPage({ params }: { params: Promise<{ id: 
                   )}
                 </div>
                 <div className="meet-sub">
-                  {!p.tijd
-                    ? "geen meting"
+                  {!p.tijd && !p.tijd_schatting
+                    ? "geen tijd"
                     : w?.fout
                       ? "niet beschikbaar"
-                      : [kompas, w?.windtype].filter(Boolean).join(" · ")}
+                      : [kompas, w?.windtype, w?.geschat ? "geschatte tijd" : null].filter(Boolean).join(" · ")}
                 </div>
               </div>
               <div className="meet-cel">
                 <div className="meet-label">Tijd</div>
-                <div className="meet-waarde">{p.tijd ?? "—"}</div>
+                <div className="meet-waarde">
+                  {p.tijd ?? (p.tijd_schatting ? `~${p.tijd_schatting.slice(0, 5)}` : "—")}
+                </div>
                 <div className="meet-sub">
                   {p.afwijking != null ? (
                     <span className="afwijking-pijl">
                       afwijking {p.afwijking >= 0 ? <ArrowRight size={11} /> : <ArrowLeft size={11} />}
                       {Math.abs(p.afwijking).toFixed(2)}
                     </span>
+                  ) : p.tijd_schatting ? (
+                    "geschat"
                   ) : (
                     "geen meting"
                   )}

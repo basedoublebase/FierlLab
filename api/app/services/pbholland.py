@@ -349,6 +349,43 @@ def _attempt_label(index: int) -> str:
     return f"Poging {index + 1}" if index < 3 else f"Finale {index - 2}"
 
 
+# Mediaan tussentijd tussen opeenvolgende sprongen (uit data-analyse: ~20 min).
+_STAP_MINUTEN = 20
+
+
+def _schat_ontbrekende_tijden(pogingen: list[dict]) -> None:
+    """Schat de tijd van sprongen zonder digitale meting, op basis van de wél
+    gemeten sprongen in dezelfde wedstrijd (interpoleren / extrapoleren)."""
+    from datetime import datetime, timedelta
+
+    bekend: dict[int, datetime] = {}
+    for i, p in enumerate(pogingen):
+        if p["tijd"]:
+            try:
+                bekend[i] = datetime.strptime(p["tijd"], "%H:%M:%S")
+            except ValueError:
+                pass
+    if not bekend:
+        return  # geen ankerpunt → niet te schatten
+
+    idxs = sorted(bekend)
+    for i, p in enumerate(pogingen):
+        if p["tijd"] or p["afstand"] is None:
+            continue  # exacte tijd, of niet gesprongen
+        voor = [k for k in idxs if k < i]
+        na = [k for k in idxs if k > i]
+        if voor and na:
+            a, b = voor[-1], na[0]
+            geschat = bekend[a] + (bekend[b] - bekend[a]) * ((i - a) / (b - a))
+        elif voor:
+            a = voor[-1]
+            geschat = bekend[a] + timedelta(minutes=_STAP_MINUTEN * (i - a))
+        else:
+            b = na[0]
+            geschat = bekend[b] - timedelta(minutes=_STAP_MINUTEN * (b - i))
+        p["tijd_schatting"] = geschat.strftime("%H:%M:%S")
+
+
 def haal_wedstrijd_detail(id_wedstrijd: int, id_persoon: int) -> dict:
     """Volledige sprongtabel van één wedstrijd voor deze springer.
 
@@ -383,6 +420,7 @@ def haal_wedstrijd_detail(id_wedstrijd: int, id_persoon: int) -> dict:
             "geldig": bool(afstand and afstand > 0),
             "id_meetgegevens": int(mg.group(1)) if mg else None,
             "tijd": None,
+            "tijd_schatting": None,
             "afwijking": None,
             "landingsplaats": None,
         }
@@ -401,6 +439,8 @@ def haal_wedstrijd_detail(id_wedstrijd: int, id_persoon: int) -> dict:
     # Lege staart-pogingen (niet gesprongen) weglaten.
     while pogingen and pogingen[-1]["afstand"] is None and pogingen[-1]["id_meetgegevens"] is None:
         pogingen.pop()
+
+    _schat_ontbrekende_tijden(pogingen)
 
     geldige = [p["afstand"] for p in pogingen if p["afstand"]]
     payload = {

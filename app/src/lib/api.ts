@@ -288,6 +288,7 @@ export type PbhPoging = {
   geldig: boolean;
   id_meetgegevens: number | null;
   tijd: string | null;
+  tijd_schatting: string | null;
   afwijking: number | null;
   landingsplaats: number | null;
 };
