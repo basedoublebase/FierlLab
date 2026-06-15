@@ -11,7 +11,7 @@ from sqlalchemy.orm import Session
 
 from app.auth import CurrentUser
 from app.db import get_db_session
-from app.models.pbh import PbhSprong, PbhWedstrijd
+from app.models.pbh import PbhProfiel, PbhSprong, PbhWedstrijd
 from app.models.profiel import Profiel
 from app.models.sprong_invoer import SprongInvoer
 from app.models.wind_cache import WindCache
@@ -61,6 +61,52 @@ def _upsert_lijst(session: Session, user_id: int, wedstrijden: list[dict], nu: d
         rij.gemiddelde = w["gemiddelde"]
         rij.fetched_at = nu
 
+
+def _upsert_profiel(session: Session, user_id: int, prof: dict) -> None:
+    rij = session.scalars(select(PbhProfiel).where(PbhProfiel.user_id == user_id)).first()
+    if rij is None:
+        rij = PbhProfiel(user_id=user_id)
+        session.add(rij)
+    rij.naam = prof.get("naam") or ""
+    rij.bond = prof.get("bond")
+    rij.vereniging = prof.get("vereniging")
+    rij.woonplaats = prof.get("woonplaats")
+    rij.categorie = prof.get("categorie")
+    rij.wedstrijdcategorie = prof.get("wedstrijdcategorie")
+    rij.rugnummer = prof.get("rugnummer")
+    rij.ranking = prof.get("ranking")
+    rij.titels = prof.get("titels")
+    rij.dagtitels = prof.get("dagtitels")
+    rij.pr_overall = prof.get("pr_overall")
+    rij.aantal_wedstrijden = int(prof["aantal_wedstrijden"]) if prof.get("aantal_wedstrijden") else None
+    rij.aantal_sprongen = int(prof["aantal_sprongen"]) if prof.get("aantal_sprongen") else None
+
+
+def _zorg_lijst_vers(session: Session, user_id: int, profiel: Profiel, nu: datetime) -> bool:
+    """Ververs de wedstrijdenlijst + profiel in de DB indien verouderd.
+
+    Geeft True als er bruikbare data in de DB staat. Scrape-fout met lege DB → 503.
+    """
+    heeft_rijen = (
+        session.scalars(select(PbhWedstrijd.id).where(PbhWedstrijd.user_id == user_id).limit(1)).first()
+        is not None
+    )
+    stale = (
+        profiel.pbholland_lijst_fetched_at is None
+        or (nu - profiel.pbholland_lijst_fetched_at) > _LIJST_TTL
+    )
+    if stale:
+        try:
+            data = pbholland.haal_wedstrijden(profiel.pbholland_id, profiel.naam or None)
+        except httpx.HTTPError:
+            return heeft_rijen
+        _upsert_lijst(session, user_id, data["wedstrijden"], nu)
+        _upsert_profiel(session, user_id, data["profiel"])
+        profiel.pbholland_lijst_fetched_at = nu
+        session.commit()
+        return True
+    return heeft_rijen
+
 router = APIRouter(tags=["pbholland"])
 
 
@@ -99,34 +145,91 @@ def statistieken(
     user: CurrentUser,
     session: Session = Depends(get_db_session),
 ) -> dict:
-    """Volledige statistieken voor het gekoppelde pbholland-profiel van de gebruiker."""
+    """Statistieken — afgeleid uit de opgeslagen wedstrijden + profiel (geen scrape op warm)."""
     profiel = _gekoppeld_profiel(user, session)
-    return _scrape(profiel.pbholland_id, profiel.naam or None)
+    if not _zorg_lijst_vers(session, user.id, profiel, _now()):
+        raise HTTPException(status_code=503, detail="pbholland.com is tijdelijk niet bereikbaar.")
+
+    rijen = session.scalars(select(PbhWedstrijd).where(PbhWedstrijd.user_id == user.id)).all()
+    pp = session.scalars(select(PbhProfiel).where(PbhProfiel.user_id == user.id)).first()
+
+    geldige = [r for r in rijen if (r.verste_afstand or 0) > 0]
+
+    pr = None
+    if geldige:
+        beste = max(geldige, key=lambda r: r.verste_afstand)
+        pr = {"afstand": beste.verste_afstand, "datum": beste.datum, "plaats": beste.plaats}
+
+    per_jaar: dict[int, float] = {}
+    for r in geldige:
+        jaar = int(r.datum[:4])
+        per_jaar[jaar] = max(per_jaar.get(jaar, 0), r.verste_afstand)
+    jaren = sorted(per_jaar)
+    pr_per_seizoen = []
+    lopend = 0.0
+    for jaar in jaren:
+        lopend = max(lopend, per_jaar[jaar])
+        pr_per_seizoen.append({"jaar": jaar, "seizoensbeste": round(per_jaar[jaar], 2), "pr_tot": round(lopend, 2)})
+
+    seizoensrecord = None
+    if jaren:
+        laatste = jaren[-1]
+        vorige = jaren[-2] if len(jaren) > 1 else None
+        verschil = round(per_jaar[laatste] - per_jaar[vorige], 2) if vorige is not None else None
+        seizoensrecord = {"afstand": round(per_jaar[laatste], 2), "jaar": laatste, "verschil": verschil, "vorig_jaar": vorige}
+
+    per_schans: dict[str, dict] = {}
+    for r in geldige:
+        h = per_schans.get(r.plaats)
+        if h is None or r.verste_afstand > h["afstand"]:
+            per_schans[r.plaats] = {"plaats": r.plaats, "afstand": r.verste_afstand, "datum": r.datum}
+    beste_per_schans = sorted(per_schans.values(), key=lambda x: x["afstand"], reverse=True)[:6]
+
+    gem_uitslag = round(sum(r.verste_afstand for r in geldige) / len(geldige), 2) if geldige else None
+
+    # Gem. afwijking uit de opgeslagen losse sprongen (waar beschikbaar).
+    sprongen = session.scalars(select(PbhSprong).where(PbhSprong.user_id == user.id)).all()
+    per_wed: dict[int, list[float]] = {}
+    for s in sprongen:
+        if s.afstand and s.afstand > 0:
+            per_wed.setdefault(s.id_wedstrijd, []).append(s.afstand)
+    afwijkingen: list[float] = []
+    for sprongenlijst in per_wed.values():
+        beste_dag = max(sprongenlijst)
+        afwijkingen.extend(x - beste_dag for x in sprongenlijst)
+    gem_afwijking = round(sum(afwijkingen) / len(afwijkingen), 2) if afwijkingen else None
+
+    return {
+        "naam": pp.naam if pp else profiel.naam,
+        "vereniging": pp.vereniging if pp else None,
+        "woonplaats": pp.woonplaats if pp else None,
+        "categorie": pp.categorie if pp else None,
+        "wedstrijdcategorie": pp.wedstrijdcategorie if pp else None,
+        "rugnummer": pp.rugnummer if pp else None,
+        "bond": pp.bond if pp else None,
+        "ranking": pp.ranking if pp else None,
+        "titels": pp.titels if pp else None,
+        "dagtitels": pp.dagtitels if pp else None,
+        "pr_overall": pp.pr_overall if pp else None,
+        "aantal_wedstrijden": (pp.aantal_wedstrijden if pp and pp.aantal_wedstrijden else len(rijen)),
+        "aantal_sprongen": pp.aantal_sprongen if pp else None,
+        "pr": pr,
+        "seizoensrecord": seizoensrecord,
+        "pr_per_seizoen": pr_per_seizoen,
+        "beste_per_schans": beste_per_schans,
+        "gemiddelde_uitslag": gem_uitslag,
+        "gemiddelde_afwijking": gem_afwijking,
+        "id_persoon": profiel.pbholland_id,
+        "id_springer": None,
+    }
 
 
 @router.get("/pbholland/wedstrijden")
 def wedstrijden(user: CurrentUser, session: Session = Depends(get_db_session)) -> dict:
     """Wedstrijdenlijst — uit de database, max 1×/dag opnieuw gescrapet."""
     profiel = _gekoppeld_profiel(user, session)
-    nu = _now()
-    stale = (
-        profiel.pbholland_lijst_fetched_at is None
-        or (nu - profiel.pbholland_lijst_fetched_at) > _LIJST_TTL
-    )
-    heeft_rijen = session.scalars(
-        select(PbhWedstrijd.id).where(PbhWedstrijd.user_id == user.id).limit(1)
-    ).first() is not None
-
-    if stale:
-        try:
-            data = pbholland.haal_wedstrijden(profiel.pbholland_id, profiel.naam or None)
-        except httpx.HTTPError as exc:
-            if not heeft_rijen:
-                raise HTTPException(status_code=503, detail="pbholland.com is tijdelijk niet bereikbaar.") from exc
-        else:
-            _upsert_lijst(session, user.id, data["wedstrijden"], nu)
-            profiel.pbholland_lijst_fetched_at = nu
-            session.commit()
+    if not _zorg_lijst_vers(session, user.id, profiel, _now()):
+        raise HTTPException(status_code=503, detail="pbholland.com is tijdelijk niet bereikbaar.")
 
     rijen = session.scalars(
         select(PbhWedstrijd)
@@ -225,12 +328,20 @@ def wedstrijd_detail(
     pogingen = []
     for s in sprongen:
         si = stok.get(s.poging_index)
+        # Al-gecachte wind meteen meesturen (scheelt een losse call vanuit de browser).
+        wind = None
+        tijd = s.tijd or s.tijd_schatting
+        if tijd and wed.plaats:
+            sk = _slot_key(wed.datum, tijd)
+            if sk:
+                wind = _wind_uit_cache(session, wed.plaats, sk)
         pogingen.append({
             "label": s.label, "afstand": s.afstand, "geldig": s.geldig,
             "id_meetgegevens": s.id_meetgegevens, "tijd": s.tijd, "tijd_schatting": s.tijd_schatting,
             "afwijking": s.afwijking, "landingsplaats": s.landingsplaats, "poging_index": s.poging_index,
             "stok_op_m": si.stok_op_m if si else None,
             "stok_uit_hand_m": si.stok_uit_hand_m if si else None,
+            "wind": wind,
         })
     geldige = [s.afstand for s in sprongen if s.afstand]
     return {
@@ -274,6 +385,38 @@ def zet_stok_invoer(
     rij.stok_uit_hand_m = payload.stok_uit_hand_m
     session.commit()
     return {"stok_op_m": rij.stok_op_m, "stok_uit_hand_m": rij.stok_uit_hand_m}
+
+
+def _slot_key(datum: str, tijd: str) -> str | None:
+    """UTC-slot (10 min) voor een lokale datum + tijd; None bij ongeldige invoer."""
+    try:
+        lokaal = datetime.fromisoformat(f"{datum}T{tijd}").replace(tzinfo=_NL_TZ)
+    except (ValueError, TypeError):
+        return None
+    ts_utc = lokaal.astimezone(timezone.utc)
+    slot = ts_utc.replace(minute=(ts_utc.minute // 10) * 10, second=0, microsecond=0)
+    return slot.strftime("%Y%m%d%H%M")
+
+
+def _wind_uit_cache(session: Session, plaats: str, slot_key: str) -> dict | None:
+    c = session.scalars(
+        select(WindCache).where(WindCache.plaats == plaats, WindCache.slot_key == slot_key)
+    ).first()
+    if c is None:
+        return None
+    return _voeg_windtype_toe(
+        {
+            "wind_ms": c.wind_ms,
+            "windrichting_graden": c.windrichting_graden,
+            "windvlagen_ms": c.windvlagen_ms,
+            "wind_station": c.wind_station,
+            "wind_station_afstand_km": c.wind_station_afstand_km,
+            "wind_resolutie": c.wind_resolutie,
+            "wind_gevalideerd": c.wind_gevalideerd,
+            "bron": "cache",
+        },
+        plaats,
+    )
 
 
 def _voeg_windtype_toe(wind: dict, plaats: str) -> dict:

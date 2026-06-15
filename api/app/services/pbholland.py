@@ -320,6 +320,7 @@ def haal_wedstrijden(id_persoon: int, naam_hint: str | None = None) -> dict:
         "naam": profiel["naam"],
         "id_persoon": id_persoon,
         "id_springer": profiel["id_springer"],
+        "profiel": profiel,
         "wedstrijden": wedstrijden,
     }
     if len(_wedstrijden_cache) > 200:

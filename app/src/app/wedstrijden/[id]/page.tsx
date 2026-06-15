@@ -112,6 +112,14 @@ export default function WedstrijdDetailPage({ params }: { params: Promise<{ id: 
       const tijd = p.tijd ?? p.tijd_schatting;
       if (!tijd) return;
       const geschat = !p.tijd;
+      // Server stuurt al-gecachte wind mee → geen losse call nodig.
+      if (p.wind && p.wind.wind_ms != null) {
+        setWind((w) => ({
+          ...w,
+          [i]: { laden: false, ms: p.wind!.wind_ms, graden: p.wind!.windrichting_graden, windtype: p.wind!.windtype, geschat },
+        }));
+        return;
+      }
       setWind((w) => ({ ...w, [i]: { laden: true, geschat } }));
       fetchPbhWind(detail.plaats as string, detail.datum as string, tijd)
         .then((res) => {

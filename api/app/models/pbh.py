@@ -32,6 +32,28 @@ class PbhWedstrijd(Base):
     fetched_at: Mapped[datetime] = mapped_column(DateTime)
 
 
+class PbhProfiel(Base):
+    """Permanent opgeslagen pbholland-profielvelden (per gebruiker), voor Statistieken."""
+
+    __tablename__ = "pbh_profiel"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    user_id: Mapped[int] = mapped_column(ForeignKey("users.id"), unique=True, index=True)
+    naam: Mapped[str] = mapped_column(String(120), default="")
+    bond: Mapped[str | None] = mapped_column(String(20), nullable=True)
+    vereniging: Mapped[str | None] = mapped_column(String(80), nullable=True)
+    woonplaats: Mapped[str | None] = mapped_column(String(80), nullable=True)
+    categorie: Mapped[str | None] = mapped_column(String(40), nullable=True)
+    wedstrijdcategorie: Mapped[str | None] = mapped_column(String(40), nullable=True)
+    rugnummer: Mapped[str | None] = mapped_column(String(12), nullable=True)
+    ranking: Mapped[float | None] = mapped_column(Float, nullable=True)
+    titels: Mapped[float | None] = mapped_column(Float, nullable=True)
+    dagtitels: Mapped[float | None] = mapped_column(Float, nullable=True)
+    pr_overall: Mapped[float | None] = mapped_column(Float, nullable=True)
+    aantal_wedstrijden: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    aantal_sprongen: Mapped[int | None] = mapped_column(Integer, nullable=True)
+
+
 class PbhSprong(Base):
     """Permanent opgeslagen pbholland-sprong (per gebruiker, per wedstrijd + poging)."""
 

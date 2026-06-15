@@ -294,6 +294,7 @@ export type PbhPoging = {
   poging_index: number;
   stok_op_m: number | null;
   stok_uit_hand_m: number | null;
+  wind?: PbhWind | null;
 };
 
 export type PbhWedstrijdDetail = {
