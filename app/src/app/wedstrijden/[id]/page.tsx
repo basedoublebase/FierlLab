@@ -1,37 +1,37 @@
 "use client";
 
 import Link from "next/link";
-import { use, useEffect, useMemo, useState } from "react";
-import { useRouter } from "next/navigation";
-import { WindPoging } from "@/app/_components/wind-poging";
+import { use, useEffect, useState } from "react";
+import { ArrowLeft, ArrowRight, ArrowUp, Wind } from "lucide-react";
 
 import {
-  type Profiel,
-  type Wedstrijd,
-  deleteWedstrijd,
-  fetchProfiel,
-  fetchWedstrijd,
+  type PbhWedstrijdDetail,
+  fetchPbhWedstrijdDetail,
+  fetchPbhWind,
 } from "@/lib/api";
-import { formatDatum, formatTijd } from "@/lib/date";
-import { FYSICA_DEFAULTS, benutting, berekenSprongMax } from "@/lib/fysica";
+import { formatDatum } from "@/lib/date";
+import { kompasRichting } from "@/lib/fysica";
+
+type WindStatus = { laden: boolean; ms?: number; graden?: number | null; fout?: boolean };
+
+// Dummy theoretisch maximum tot de exacte formules er zijn.
+function dummyMax(afstand: number): { max: number; benutting: number } {
+  const max = Math.round((afstand / 0.93) * 100) / 100;
+  return { max, benutting: Math.round((afstand / max) * 100) };
+}
 
 export default function WedstrijdDetailPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = use(params);
-  const router = useRouter();
-  const [wedstrijd, setWedstrijd] = useState<Wedstrijd | null>(null);
-  const [profiel, setProfiel] = useState<Profiel | null>(null);
+  const [detail, setDetail] = useState<PbhWedstrijdDetail | null>(null);
   const [laden, setLaden] = useState(true);
   const [fout, setFout] = useState<string | null>(null);
-  const [bevestigVerwijderen, setBevestigVerwijderen] = useState(false);
-  const [bezig, setBezig] = useState(false);
+  const [wind, setWind] = useState<Record<number, WindStatus>>({});
 
   useEffect(() => {
     let actief = true;
-    Promise.all([fetchWedstrijd(id), fetchProfiel()])
-      .then(([w, p]) => {
-        if (!actief) return;
-        setWedstrijd(w);
-        setProfiel(p);
+    fetchPbhWedstrijdDetail(Number(id))
+      .then((d) => {
+        if (actief) setDetail(d);
       })
       .catch((e) => {
         if (actief) setFout(e instanceof Error ? e.message : "Laden mislukt.");
@@ -44,43 +44,37 @@ export default function WedstrijdDetailPage({ params }: { params: Promise<{ id: 
     };
   }, [id]);
 
-  const fysicaConfig = useMemo(() => {
-    if (!wedstrijd) return FYSICA_DEFAULTS;
-    return {
-      massa_kg: profiel?.massa_kg ?? FYSICA_DEFAULTS.massa_kg,
-      stoklengte_m: profiel?.stoklengte_m ?? FYSICA_DEFAULTS.stoklengte_m,
-      uitsprongstoot_ns: profiel?.uitsprongstoot_ns ?? FYSICA_DEFAULTS.uitsprongstoot_ns,
-      springer_gestrekt_m: profiel?.springer_gestrekt_m ?? FYSICA_DEFAULTS.springer_gestrekt_m,
-      waterdiepte_m: wedstrijd.schans.waterdiepte_m,
-      schanshoogte_m: wedstrijd.schans.schanshoogte_m,
+  // Wind per gemeten sprong lazy + parallel ophalen zodra detail er is.
+  useEffect(() => {
+    if (!detail || !detail.plaats || !detail.datum) return;
+    let actief = true;
+    detail.pogingen.forEach((p, i) => {
+      if (!p.tijd) return;
+      setWind((w) => ({ ...w, [i]: { laden: true } }));
+      fetchPbhWind(detail.plaats as string, detail.datum as string, p.tijd as string)
+        .then((res) => {
+          if (actief) setWind((w) => ({ ...w, [i]: { laden: false, ms: res.wind_ms, graden: res.windrichting_graden } }));
+        })
+        .catch(() => {
+          if (actief) setWind((w) => ({ ...w, [i]: { laden: false, fout: true } }));
+        });
+    });
+    return () => {
+      actief = false;
     };
-  }, [wedstrijd, profiel]);
-
-  async function verwijderen() {
-    if (!wedstrijd) return;
-    setBezig(true);
-    setFout(null);
-    try {
-      await deleteWedstrijd(wedstrijd.id);
-      router.push("/wedstrijden");
-      router.refresh();
-    } catch (e) {
-      setFout(e instanceof Error ? e.message : "Verwijderen mislukt.");
-      setBezig(false);
-    }
-  }
+  }, [detail]);
 
   if (laden) {
     return (
       <main className="shell">
         <div className="card loading-card">
-          <p className="muted">Laden…</p>
+          <p className="muted">Wedstrijd laden…</p>
         </div>
       </main>
     );
   }
 
-  if (!wedstrijd) {
+  if (fout || !detail) {
     return (
       <main className="shell">
         <Link href="/wedstrijden" className="terug-link">← Terug naar wedstrijden</Link>
@@ -89,149 +83,109 @@ export default function WedstrijdDetailPage({ params }: { params: Promise<{ id: 
     );
   }
 
-  const geldig = wedstrijd.pogingen.filter((p) => (p.afstand_m ?? 0) > 0);
-  const beste = geldig.length > 0 ? Math.max(...geldig.map((p) => p.afstand_m as number)) : null;
-
   return (
     <main className="shell">
       <Link href="/wedstrijden" className="terug-link">← Terug naar wedstrijden</Link>
 
-      <header className="hero">
-        <p className="eyebrow">{formatDatum(wedstrijd.datum)} · {wedstrijd.categorie}</p>
-        <h1>{wedstrijd.schans.naam}</h1>
-      </header>
-
-      {fout && <div className="banner error">{fout}</div>}
-
-      <div className="stat-grid">
-        <div className="stat-card">
-          <span className="stat-label">Beste sprong</span>
-          <span className="stat-value">{beste !== null ? `${beste.toFixed(2)} m` : "—"}</span>
-        </div>
-        <div className="stat-card">
-          <span className="stat-label">Geldige pogingen</span>
-          <span className="stat-value">{geldig.length}</span>
-          <span className="stat-sub">van {wedstrijd.pogingen.length} totaal</span>
-        </div>
-        <div className="stat-card">
-          <span className="stat-label">Locatie</span>
-          <span className="stat-value" style={{ fontSize: "1.1rem" }}>
-            {wedstrijd.schans.locatie || wedstrijd.schans.naam}
-          </span>
-          <span className="stat-sub">
-            water {wedstrijd.schans.waterdiepte_m} m · schans {wedstrijd.schans.schanshoogte_m} m
-          </span>
-        </div>
-      </div>
-
-      <section className="card">
-        <div className="section-header">
-          <h2>Alle pogingen</h2>
-        </div>
-
-        {wedstrijd.pogingen.length === 0 ? (
-          <p className="rij-leeg">Geen pogingen ingevuld.</p>
-        ) : (
-          <div className="poging-list">
-            {wedstrijd.pogingen.map((poging) => {
-              const berekening =
-                poging.stok_op_m !== null ? berekenSprongMax(poging.stok_op_m, fysicaConfig) : null;
-              const benut =
-                berekening && poging.afstand_m !== null && poging.afstand_m > 0
-                  ? benutting(poging.afstand_m, berekening.theoretisch_max_m)
-                  : null;
-              return (
-                <article key={poging.id} className="poging-card">
-                  <div className="poging-header">
-                    <span className="poging-nummer">{poging.nummer}</span>
-                    <span className="muted" style={{ fontSize: "0.84rem" }}>
-                      {formatTijd(poging.timestamp)}
-                    </span>
-                    <span style={{ marginLeft: "auto" }}>
-                      <WindPoging
-                        poging={poging}
-                        onUpdate={(bijgewerkt) =>
-                          setWedstrijd((w) =>
-                            w
-                              ? { ...w, pogingen: w.pogingen.map((p) => (p.id === bijgewerkt.id ? bijgewerkt : p)) }
-                              : w
-                          )
-                        }
-                      />
-                    </span>
-                  </div>
-                  <div className="berekening-grid">
-                    <div className="berekening-cel">
-                      <span className="berekening-label">Stok op</span>
-                      <span className="berekening-waarde">
-                        {poging.stok_op_m !== null ? `${poging.stok_op_m.toFixed(2)} m` : "—"}
-                      </span>
-                    </div>
-                    <div className="berekening-cel">
-                      <span className="berekening-label">Afstand</span>
-                      <span className="berekening-waarde">
-                        {poging.afstand_m !== null
-                          ? poging.afstand_m > 0
-                            ? `${poging.afstand_m.toFixed(2)} m`
-                            : "ongeldig"
-                          : "—"}
-                      </span>
-                    </div>
-                    <div className="berekening-cel">
-                      <span className="berekening-label">Theoretisch max</span>
-                      <span className="berekening-waarde">
-                        {berekening ? `${berekening.theoretisch_max_m.toFixed(2)} m` : "—"}
-                      </span>
-                    </div>
-                    <div className="berekening-cel">
-                      <span className="berekening-label">Benutting</span>
-                      <span className="berekening-waarde">{benut !== null ? `${benut}%` : "—"}</span>
-                    </div>
-                  </div>
-                </article>
-              );
-            })}
+      <section className="card" style={{ marginTop: 0 }}>
+        <div className="wed-detail-kop">
+          <div style={{ minWidth: 0 }}>
+            {detail.datum && <div className="wed-datum">{formatDatum(detail.datum)}</div>}
+            <h1 style={{ fontSize: "1.6rem" }}>{detail.wedstrijd || detail.plaats}</h1>
+            {detail.plaats && <div className="wed-plaats" style={{ marginTop: 4 }}>📍 {detail.plaats}</div>}
           </div>
-        )}
+          <div className="wed-kop-rechts">
+            <span className="status-pill">
+              {detail.categorie}
+              {detail.positie ? ` · ${detail.positie}e` : ""}
+            </span>
+            {detail.beste !== null && <span className="wed-detail-verste">{detail.beste.toFixed(2)} m</span>}
+          </div>
+        </div>
       </section>
 
-      <section className="card">
-        {bevestigVerwijderen ? (
-          <div className="delete-confirm-banner">
-            <p className="muted">
-              Weet je zeker dat je deze wedstrijd en alle pogingen wilt verwijderen?
-            </p>
-            <div className="delete-confirm-actions">
-              <button
-                type="button"
-                className="secondary-button"
-                onClick={() => setBevestigVerwijderen(false)}
-                disabled={bezig}
-              >
-                Annuleren
-              </button>
-              <button
-                type="button"
-                className="primary-button delete-confirm-btn"
-                onClick={verwijderen}
-                disabled={bezig}
-              >
-                {bezig ? "Bezig…" : "Definitief verwijderen"}
-              </button>
+      <p className="eyebrow" style={{ margin: "22px 0 0 2px" }}>Pogingen</p>
+
+      {detail.pogingen.map((p, i) => {
+        const isBeste = detail.beste !== null && p.afstand === detail.beste;
+        const themax = p.afstand !== null ? dummyMax(p.afstand) : null;
+        const w = wind[i];
+        const kompas = w?.graden != null ? kompasRichting(w.graden) : null;
+        return (
+          <article key={i} className={`poging-detail${isBeste ? " beste" : ""}`}>
+            <div className="poging-detail-kop">
+              <span className="poging-detail-naam">{p.label}</span>
+              {isBeste && <span className="wed-pr">beste</span>}
+              <span className="poging-detail-afstand">
+                {p.afstand !== null ? `${p.afstand.toFixed(2)} m` : <span className="wed-ongeldig">ongeldig</span>}
+              </span>
             </div>
-          </div>
-        ) : (
-          <div className="settings-row">
-            <div className="settings-row-text">
-              <strong>Wedstrijd verwijderen</strong>
-              <p className="settings-row-help muted">Verwijdert ook alle pogingen van deze wedstrijd.</p>
+
+            <div className="meet-grid">
+              <div className="meet-cel">
+                <div className="meet-label">Stok op</div>
+                <div className="meet-waarde">—</div>
+                <div className="meet-sub">in het water</div>
+              </div>
+              <div className="meet-cel">
+                <div className="meet-label">Stok uit hand</div>
+                <div className="meet-waarde">—</div>
+                <div className="meet-sub">greephoogte</div>
+              </div>
+
+              <div className="meet-cel">
+                <div className="meet-label">Wind</div>
+                <div className="meet-waarde">
+                  {!p.tijd ? (
+                    "—"
+                  ) : w?.laden ? (
+                    <span className="muted" style={{ fontWeight: 400, fontSize: "0.9rem" }}>ophalen…</span>
+                  ) : w?.ms != null ? (
+                    <>
+                      {w.graden != null && (
+                        <ArrowUp
+                          size={15}
+                          className="meet-wind-pijl"
+                          style={{ transform: `rotate(${(w.graden + 180) % 360}deg)` }}
+                        />
+                      )}
+                      {w.ms} m/s
+                    </>
+                  ) : (
+                    <Wind size={15} style={{ color: "var(--text-faint)" }} />
+                  )}
+                </div>
+                <div className="meet-sub">{!p.tijd ? "geen meting" : kompas ?? (w?.fout ? "niet beschikbaar" : "")}</div>
+              </div>
+              <div className="meet-cel">
+                <div className="meet-label">Tijd</div>
+                <div className="meet-waarde">{p.tijd ?? "—"}</div>
+                <div className="meet-sub">
+                  {p.afwijking != null ? (
+                    <span className="afwijking-pijl">
+                      afwijking {p.afwijking >= 0 ? <ArrowRight size={11} /> : <ArrowLeft size={11} />}
+                      {Math.abs(p.afwijking).toFixed(2)}
+                    </span>
+                  ) : (
+                    "geen meting"
+                  )}
+                </div>
+              </div>
+
+              <div className="meet-cel">
+                <div className="meet-label">Landing</div>
+                <div className="meet-waarde">{p.landingsplaats != null ? `${p.landingsplaats.toFixed(2)} m` : "—"}</div>
+                <div className="meet-sub">{p.landingsplaats != null ? "recht vooruit" : "geen meting"}</div>
+              </div>
+              <div className="meet-cel">
+                <div className="meet-label">Theoretisch max</div>
+                <div className="meet-waarde blauw">{themax ? `${themax.max.toFixed(2)} m` : "—"}</div>
+                <div className="meet-sub">{themax ? `benutting ${themax.benutting}% · dummy` : ""}</div>
+              </div>
             </div>
-            <button type="button" className="settings-logout" onClick={() => setBevestigVerwijderen(true)}>
-              Verwijderen
-            </button>
-          </div>
-        )}
-      </section>
+          </article>
+        );
+      })}
     </main>
   );
 }

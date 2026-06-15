@@ -1368,6 +1368,120 @@ select.text-input:focus {
   color: var(--text-faint);
 }
 
+.wed-link {
+  display: block;
+  text-decoration: none;
+  color: inherit;
+}
+
+/* ── Wedstrijd-detailpagina (sprongkaarten) ──────────────────────────── */
+
+.wed-detail-kop {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+}
+
+.wed-detail-verste {
+  font-size: 2rem;
+  font-weight: 800;
+  letter-spacing: -0.03em;
+  line-height: 1;
+  color: var(--accent);
+  white-space: nowrap;
+}
+
+.poging-detail {
+  margin-top: 12px;
+  padding: 0;
+  overflow: hidden;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-lg);
+  background: var(--surface);
+}
+
+.poging-detail.beste {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 1px var(--accent);
+}
+
+.poging-detail-kop {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 16px 18px;
+}
+
+.poging-detail-naam {
+  font-size: 1.1rem;
+  font-weight: 700;
+}
+
+.poging-detail-afstand {
+  margin-left: auto;
+  font-size: 1.5rem;
+  font-weight: 800;
+  letter-spacing: -0.02em;
+}
+
+.poging-detail.beste .poging-detail-afstand {
+  color: var(--accent);
+}
+
+.meet-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  border-top: 1px solid var(--surface-muted);
+}
+
+.meet-cel {
+  padding: 13px 18px;
+  border-top: 1px solid var(--surface-muted);
+  border-right: 1px solid var(--surface-muted);
+}
+
+.meet-cel:nth-child(2n) {
+  border-right: none;
+}
+
+.meet-cel:nth-child(1),
+.meet-cel:nth-child(2) {
+  border-top: none;
+}
+
+.meet-label {
+  font-size: 0.68rem;
+  font-weight: 700;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  color: var(--text-faint);
+}
+
+.meet-waarde {
+  font-size: 1.05rem;
+  font-weight: 700;
+  letter-spacing: -0.01em;
+  margin-top: 3px;
+  display: flex;
+  align-items: center;
+  gap: 5px;
+}
+
+.meet-waarde.blauw {
+  color: var(--info);
+}
+
+.meet-sub {
+  font-size: 0.78rem;
+  color: var(--text-soft);
+  margin-top: 1px;
+}
+
+.meet-wind-pijl {
+  display: inline-block;
+}
+
 /* ── Pogingen (invullen) ─────────────────────────────────────────────── */
 
 .poging-card {

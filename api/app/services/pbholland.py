@@ -18,6 +18,28 @@ from datetime import date
 import httpx
 
 BASE = "https://www.pbholland.com/index.php"
+
+# Coördinaten per schanslocatie (dorpskern volstaat voor de wind-lookup).
+# Gebruikt om bij een pbholland-sprong het dichtstbijzijnde KNMI-station te kiezen.
+PLAATS_COORDS: dict[str, tuple[float, float]] = {
+    "Polsbroekerdam": (52.0014, 4.8244),
+    "Vlist": (51.9706, 4.7964),
+    "Linschoten": (52.0639, 4.9131),
+    "Jaarsveld": (51.9772, 4.9344),
+    "Zegveld": (52.1136, 4.8358),
+    "Kockengen": (52.1283, 4.9469),
+    "Winsum": (53.1450, 5.6364),
+    "IJlst": (53.0094, 5.6217),
+    "Joure": (52.9633, 5.8042),
+    "Buitenpost": (53.2536, 6.1442),
+    "Burgum": (53.1922, 5.9886),
+    "Grijpskerk": (53.2625, 6.3061),
+    "It Heidenskip": (52.9606, 5.4761),
+}
+
+
+def coords_voor_plaats(plaats: str) -> tuple[float, float] | None:
+    return PLAATS_COORDS.get(plaats.strip())
 _HEADERS = {"User-Agent": "FierlLab/1.0 (persoonlijke sprongtracker)"}
 _TIMEOUT = 20
 

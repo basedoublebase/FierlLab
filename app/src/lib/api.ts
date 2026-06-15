@@ -298,6 +298,10 @@ export type PbhWedstrijdDetail = {
   beste: number | null;
   gemiddelde: number | null;
   pogingen: PbhPoging[];
+  datum: string | null;
+  plaats: string | null;
+  wedstrijd: string | null;
+  categorie: string | null;
 };
 
 export async function fetchPbhWedstrijden(): Promise<PbhWedstrijdenLijst> {
@@ -308,6 +312,17 @@ export async function fetchPbhWedstrijden(): Promise<PbhWedstrijdenLijst> {
 export async function fetchPbhWedstrijdDetail(idWedstrijd: number): Promise<PbhWedstrijdDetail> {
   const response = await apiFetch(`/pbholland/wedstrijd/${idWedstrijd}`, { cache: "no-store" });
   return parseJson<PbhWedstrijdDetail>(response);
+}
+
+export async function fetchPbhWind(plaats: string, datum: string, tijd: string): Promise<WindResult & {
+  windvlagen_ms: number | null;
+  wind_station: string | null;
+  wind_station_afstand_km: number | null;
+  wind_resolutie: string | null;
+}> {
+  const params = new URLSearchParams({ plaats, datum, tijd });
+  const response = await apiFetch(`/pbholland/wind?${params.toString()}`, { cache: "no-store" });
+  return parseJson(response);
 }
 
 export async function previewPbhProfiel(idPersoon: number, naam?: string): Promise<PbhStatistieken> {
