@@ -291,6 +291,9 @@ export type PbhPoging = {
   tijd_schatting: string | null;
   afwijking: number | null;
   landingsplaats: number | null;
+  poging_index: number;
+  stok_op_m: number | null;
+  stok_uit_hand_m: number | null;
 };
 
 export type PbhWedstrijdDetail = {
@@ -328,6 +331,19 @@ export async function fetchPbhWind(plaats: string, datum: string, tijd: string):
   const params = new URLSearchParams({ plaats, datum, tijd });
   const response = await apiFetch(`/pbholland/wind?${params.toString()}`, { cache: "no-store" });
   return parseJson<PbhWind>(response);
+}
+
+export async function savePbhStok(
+  idWedstrijd: number,
+  pogingIndex: number,
+  payload: { stok_op_m: number | null; stok_uit_hand_m: number | null }
+): Promise<{ stok_op_m: number | null; stok_uit_hand_m: number | null }> {
+  const response = await apiFetch(`/pbholland/wedstrijd/${idWedstrijd}/poging/${pogingIndex}`, {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload),
+  });
+  return parseJson(response);
 }
 
 export async function previewPbhProfiel(idPersoon: number, naam?: string): Promise<PbhStatistieken> {

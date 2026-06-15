@@ -5,12 +5,14 @@ from zoneinfo import ZoneInfo
 
 import httpx
 from fastapi import APIRouter, Depends, HTTPException
+from pydantic import BaseModel
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.auth import CurrentUser
 from app.db import get_db_session
 from app.models.profiel import Profiel
+from app.models.sprong_invoer import SprongInvoer
 from app.services import pbholland
 from app.services.knmi import KnmiError, haal_knmi_wind
 
@@ -84,13 +86,64 @@ def wedstrijd_detail(
         raise HTTPException(status_code=503, detail="pbholland.com is tijdelijk niet bereikbaar.") from exc
 
     meta = next((w for w in lijst["wedstrijden"] if w["id_wedstrijd"] == id_wedstrijd), None)
+
+    # Eigen handmatige stok-data per poging-index erbij voegen.
+    invoer = {
+        r.poging_index: r
+        for r in session.scalars(
+            select(SprongInvoer).where(
+                SprongInvoer.user_id == user.id, SprongInvoer.id_wedstrijd == id_wedstrijd
+            )
+        ).all()
+    }
+    pogingen = []
+    for i, p in enumerate(detail["pogingen"]):
+        rij = invoer.get(i)
+        pogingen.append({
+            **p,
+            "poging_index": i,
+            "stok_op_m": rij.stok_op_m if rij else None,
+            "stok_uit_hand_m": rij.stok_uit_hand_m if rij else None,
+        })
+
     return {
         **detail,
+        "pogingen": pogingen,
         "datum": meta["datum"] if meta else None,
         "plaats": meta["plaats"] if meta else None,
         "wedstrijd": meta["wedstrijd"] if meta else None,
         "categorie": meta["categorie"] if meta else None,
     }
+
+
+class StokInvoerRequest(BaseModel):
+    stok_op_m: float | None = None
+    stok_uit_hand_m: float | None = None
+
+
+@router.put("/pbholland/wedstrijd/{id_wedstrijd}/poging/{poging_index}")
+def zet_stok_invoer(
+    id_wedstrijd: int,
+    poging_index: int,
+    payload: StokInvoerRequest,
+    user: CurrentUser,
+    session: Session = Depends(get_db_session),
+) -> dict:
+    """Sla eigen stok op / stok uit hand op bij een pbholland-sprong."""
+    rij = session.scalars(
+        select(SprongInvoer).where(
+            SprongInvoer.user_id == user.id,
+            SprongInvoer.id_wedstrijd == id_wedstrijd,
+            SprongInvoer.poging_index == poging_index,
+        )
+    ).first()
+    if rij is None:
+        rij = SprongInvoer(user_id=user.id, id_wedstrijd=id_wedstrijd, poging_index=poging_index)
+        session.add(rij)
+    rij.stok_op_m = payload.stok_op_m
+    rij.stok_uit_hand_m = payload.stok_uit_hand_m
+    session.commit()
+    return {"stok_op_m": rij.stok_op_m, "stok_uit_hand_m": rij.stok_uit_hand_m}
 
 
 @router.get("/pbholland/wind")

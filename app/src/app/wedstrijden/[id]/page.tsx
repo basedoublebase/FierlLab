@@ -2,12 +2,13 @@
 
 import Link from "next/link";
 import { use, useEffect, useState } from "react";
-import { ArrowLeft, ArrowRight, ArrowUp, Wind } from "lucide-react";
+import { ArrowLeft, ArrowRight, ArrowUp, Check, Pencil, Wind, X } from "lucide-react";
 
 import {
   type PbhWedstrijdDetail,
   fetchPbhWedstrijdDetail,
   fetchPbhWind,
+  savePbhStok,
 } from "@/lib/api";
 import { formatDatum } from "@/lib/date";
 import { kompasRichting } from "@/lib/fysica";
@@ -33,6 +34,51 @@ export default function WedstrijdDetailPage({ params }: { params: Promise<{ id: 
   const [laden, setLaden] = useState(true);
   const [fout, setFout] = useState<string | null>(null);
   const [wind, setWind] = useState<Record<number, WindStatus>>({});
+
+  const [bewerk, setBewerk] = useState<number | null>(null);
+  const [stokOp, setStokOp] = useState("");
+  const [stokUit, setStokUit] = useState("");
+  const [opslaanBezig, setOpslaanBezig] = useState(false);
+
+  function startBewerk(p: { poging_index: number; stok_op_m: number | null; stok_uit_hand_m: number | null }) {
+    setBewerk(p.poging_index);
+    setStokOp(p.stok_op_m?.toString() ?? "");
+    setStokUit(p.stok_uit_hand_m?.toString() ?? "");
+  }
+
+  async function bewaarStok(pogingIndex: number) {
+    if (!detail) return;
+    const parse = (s: string): number | null => {
+      const t = s.trim().replace(",", ".");
+      if (t === "") return null;
+      const n = Number(t);
+      return Number.isFinite(n) ? n : null;
+    };
+    setOpslaanBezig(true);
+    try {
+      const res = await savePbhStok(detail.id_wedstrijd, pogingIndex, {
+        stok_op_m: parse(stokOp),
+        stok_uit_hand_m: parse(stokUit),
+      });
+      setDetail((d) =>
+        d
+          ? {
+              ...d,
+              pogingen: d.pogingen.map((x) =>
+                x.poging_index === pogingIndex
+                  ? { ...x, stok_op_m: res.stok_op_m, stok_uit_hand_m: res.stok_uit_hand_m }
+                  : x
+              ),
+            }
+          : d
+      );
+      setBewerk(null);
+    } catch (e) {
+      setFout(e instanceof Error ? e.message : "Opslaan mislukt.");
+    } finally {
+      setOpslaanBezig(false);
+    }
+  }
 
   useEffect(() => {
     let actief = true;
@@ -129,6 +175,33 @@ export default function WedstrijdDetailPage({ params }: { params: Promise<{ id: 
             <div className="poging-detail-kop">
               <span className="poging-detail-naam">{p.label}</span>
               {isBeste && <span className="wed-pr">beste</span>}
+              {bewerk === p.poging_index ? (
+                <span style={{ marginLeft: "auto", display: "inline-flex", gap: 4 }}>
+                  <button type="button" className="icon-btn" aria-label="Annuleren" onClick={() => setBewerk(null)}>
+                    <X size={16} />
+                  </button>
+                  <button
+                    type="button"
+                    className="icon-btn"
+                    aria-label="Opslaan"
+                    onClick={() => bewaarStok(p.poging_index)}
+                    disabled={opslaanBezig}
+                    style={{ color: "var(--success)" }}
+                  >
+                    <Check size={16} />
+                  </button>
+                </span>
+              ) : (
+                <button
+                  type="button"
+                  className="icon-btn"
+                  aria-label="Stok op / stok uit hand bewerken"
+                  onClick={() => startBewerk(p)}
+                  style={{ marginLeft: "auto" }}
+                >
+                  <Pencil size={15} />
+                </button>
+              )}
               <span className="poging-detail-afstand">
                 {p.afstand !== null ? `${p.afstand.toFixed(2)} m` : <span className="wed-ongeldig">ongeldig</span>}
               </span>
@@ -137,12 +210,34 @@ export default function WedstrijdDetailPage({ params }: { params: Promise<{ id: 
             <div className="meet-grid">
               <div className="meet-cel">
                 <div className="meet-label">Stok op</div>
-                <div className="meet-waarde">—</div>
+                {bewerk === p.poging_index ? (
+                  <input
+                    className="text-input"
+                    inputMode="decimal"
+                    value={stokOp}
+                    onChange={(e) => setStokOp(e.target.value)}
+                    placeholder="bijv. 10.80"
+                    style={{ minHeight: 36, marginTop: 4 }}
+                  />
+                ) : (
+                  <div className="meet-waarde">{p.stok_op_m != null ? `${p.stok_op_m.toFixed(2)} m` : "—"}</div>
+                )}
                 <div className="meet-sub">in het water</div>
               </div>
               <div className="meet-cel">
                 <div className="meet-label">Stok uit hand</div>
-                <div className="meet-waarde">—</div>
+                {bewerk === p.poging_index ? (
+                  <input
+                    className="text-input"
+                    inputMode="decimal"
+                    value={stokUit}
+                    onChange={(e) => setStokUit(e.target.value)}
+                    placeholder="bijv. 12.40"
+                    style={{ minHeight: 36, marginTop: 4 }}
+                  />
+                ) : (
+                  <div className="meet-waarde">{p.stok_uit_hand_m != null ? `${p.stok_uit_hand_m.toFixed(2)} m` : "—"}</div>
+                )}
                 <div className="meet-sub">greephoogte</div>
               </div>
 
