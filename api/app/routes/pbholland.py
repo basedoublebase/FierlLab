@@ -91,9 +91,14 @@ def _zorg_lijst_vers(session: Session, user_id: int, profiel: Profiel, nu: datet
         session.scalars(select(PbhWedstrijd.id).where(PbhWedstrijd.user_id == user_id).limit(1)).first()
         is not None
     )
+    heeft_profiel = (
+        session.scalars(select(PbhProfiel.id).where(PbhProfiel.user_id == user_id).limit(1)).first()
+        is not None
+    )
     stale = (
         profiel.pbholland_lijst_fetched_at is None
         or (nu - profiel.pbholland_lijst_fetched_at) > _LIJST_TTL
+        or not heeft_profiel  # nieuw veld nog niet gevuld → forceer één verversing
     )
     if stale:
         try:
@@ -325,16 +330,28 @@ def wedstrijd_detail(
             select(SprongInvoer).where(SprongInvoer.user_id == user.id, SprongInvoer.id_wedstrijd == id_wedstrijd)
         ).all()
     }
-    pogingen = []
+    # Slot-keys per sprong + al-gecachte wind in één query ophalen (geen N losse hops).
+    slot_per_index: dict[int, str] = {}
     for s in sprongen:
-        si = stok.get(s.poging_index)
-        # Al-gecachte wind meteen meesturen (scheelt een losse call vanuit de browser).
-        wind = None
         tijd = s.tijd or s.tijd_schatting
         if tijd and wed.plaats:
             sk = _slot_key(wed.datum, tijd)
             if sk:
-                wind = _wind_uit_cache(session, wed.plaats, sk)
+                slot_per_index[s.poging_index] = sk
+    wind_per_slot: dict[str, WindCache] = {}
+    if slot_per_index and wed.plaats:
+        for c in session.scalars(
+            select(WindCache).where(
+                WindCache.plaats == wed.plaats, WindCache.slot_key.in_(set(slot_per_index.values()))
+            )
+        ).all():
+            wind_per_slot[c.slot_key] = c
+
+    pogingen = []
+    for s in sprongen:
+        si = stok.get(s.poging_index)
+        c = wind_per_slot.get(slot_per_index.get(s.poging_index, ""))
+        wind = _wind_dict(c, wed.plaats) if c is not None else None
         pogingen.append({
             "label": s.label, "afstand": s.afstand, "geldig": s.geldig,
             "id_meetgegevens": s.id_meetgegevens, "tijd": s.tijd, "tijd_schatting": s.tijd_schatting,
@@ -398,12 +415,7 @@ def _slot_key(datum: str, tijd: str) -> str | None:
     return slot.strftime("%Y%m%d%H%M")
 
 
-def _wind_uit_cache(session: Session, plaats: str, slot_key: str) -> dict | None:
-    c = session.scalars(
-        select(WindCache).where(WindCache.plaats == plaats, WindCache.slot_key == slot_key)
-    ).first()
-    if c is None:
-        return None
+def _wind_dict(c: WindCache, plaats: str) -> dict:
     return _voeg_windtype_toe(
         {
             "wind_ms": c.wind_ms,
