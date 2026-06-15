@@ -13,3 +13,4 @@ __pycache__/
 tsconfig.tsbuildinfo
 .DS_Store
 desktop.ini
+*.xlsx

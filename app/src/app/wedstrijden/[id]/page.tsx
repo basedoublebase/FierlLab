@@ -5,13 +5,15 @@ import { use, useEffect, useState } from "react";
 import { ArrowLeft, ArrowRight, ArrowUp, Check, Pencil, Wind, X } from "lucide-react";
 
 import {
+  type Profiel,
   type PbhWedstrijdDetail,
   fetchPbhWedstrijdDetail,
   fetchPbhWind,
+  fetchProfiel,
   savePbhStok,
 } from "@/lib/api";
 import { formatDatum } from "@/lib/date";
-import { kompasRichting } from "@/lib/fysica";
+import { FYSICA_DEFAULTS, benutting, berekenSprongMax, kompasRichting } from "@/lib/fysica";
 
 type WindStatus = {
   laden: boolean;
@@ -22,12 +24,6 @@ type WindStatus = {
   fout?: boolean;
 };
 
-// Dummy theoretisch maximum tot de exacte formules er zijn.
-function dummyMax(afstand: number): { max: number; benutting: number } {
-  const max = Math.round((afstand / 0.93) * 100) / 100;
-  return { max, benutting: Math.round((afstand / max) * 100) };
-}
-
 export default function WedstrijdDetailPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = use(params);
   const [detail, setDetail] = useState<PbhWedstrijdDetail | null>(null);
@@ -35,6 +31,7 @@ export default function WedstrijdDetailPage({ params }: { params: Promise<{ id: 
   const [fout, setFout] = useState<string | null>(null);
   const [wind, setWind] = useState<Record<number, WindStatus>>({});
 
+  const [profiel, setProfiel] = useState<Profiel | null>(null);
   const [bewerk, setBewerk] = useState<number | null>(null);
   const [stokOp, setStokOp] = useState("");
   const [stokUit, setStokUit] = useState("");
@@ -82,9 +79,11 @@ export default function WedstrijdDetailPage({ params }: { params: Promise<{ id: 
 
   useEffect(() => {
     let actief = true;
-    fetchPbhWedstrijdDetail(Number(id))
-      .then((d) => {
-        if (actief) setDetail(d);
+    Promise.all([fetchPbhWedstrijdDetail(Number(id)), fetchProfiel().catch(() => null)])
+      .then(([d, p]) => {
+        if (!actief) return;
+        setDetail(d);
+        setProfiel(p);
       })
       .catch((e) => {
         if (actief) setFout(e instanceof Error ? e.message : "Laden mislukt.");
@@ -96,6 +95,14 @@ export default function WedstrijdDetailPage({ params }: { params: Promise<{ id: 
       actief = false;
     };
   }, [id]);
+
+  const fysicaConfig = {
+    ...FYSICA_DEFAULTS,
+    massa_kg: profiel?.massa_kg ?? FYSICA_DEFAULTS.massa_kg,
+    stoklengte_m: profiel?.stoklengte_m ?? FYSICA_DEFAULTS.stoklengte_m,
+    uitsprongstoot_ns: profiel?.uitsprongstoot_ns ?? FYSICA_DEFAULTS.uitsprongstoot_ns,
+    springer_gestrekt_m: profiel?.springer_gestrekt_m ?? FYSICA_DEFAULTS.springer_gestrekt_m,
+  };
 
   // Wind per gemeten sprong lazy + parallel ophalen zodra detail er is.
   useEffect(() => {
@@ -167,7 +174,11 @@ export default function WedstrijdDetailPage({ params }: { params: Promise<{ id: 
 
       {detail.pogingen.map((p, i) => {
         const isBeste = detail.beste !== null && p.afstand === detail.beste;
-        const themax = p.afstand !== null ? dummyMax(p.afstand) : null;
+        const berekening = p.stok_op_m != null ? berekenSprongMax(p.stok_op_m, fysicaConfig) : null;
+        const benut =
+          berekening && p.afstand != null && p.afstand > 0
+            ? benutting(p.afstand, berekening.theoretisch_max_m)
+            : null;
         const w = wind[i];
         const kompas = w?.graden != null ? kompasRichting(w.graden) : null;
         return (
@@ -297,8 +308,16 @@ export default function WedstrijdDetailPage({ params }: { params: Promise<{ id: 
               </div>
               <div className="meet-cel">
                 <div className="meet-label">Theoretisch max</div>
-                <div className="meet-waarde blauw">{themax ? `${themax.max.toFixed(2)} m` : "—"}</div>
-                <div className="meet-sub">{themax ? `benutting ${themax.benutting}% · dummy` : ""}</div>
+                <div className="meet-waarde blauw">
+                  {berekening ? `${berekening.theoretisch_max_m.toFixed(2)} m` : "—"}
+                </div>
+                <div className="meet-sub">
+                  {berekening
+                    ? benut !== null
+                      ? `benutting ${benut}% · hoek ${berekening.optimale_hoek_graden}°`
+                      : `optimale hoek ${berekening.optimale_hoek_graden}°`
+                    : "vul stok op in"}
+                </div>
               </div>
             </div>
           </article>

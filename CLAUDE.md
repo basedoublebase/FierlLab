@@ -32,11 +32,18 @@ api/   FastAPI + SQLAlchemy (Python)      → Railway
 
 ## Fysica
 
-`app/src/lib/fysica.ts` — approximatie (pendulum + uitsprongstoot), letterlijk uit het
-briefing-document. Let op: het kalibratiepunt uit de briefing (stok_op=11.70 →
-21.93 m / 6.33 m / 47°) wordt door de briefing-formule zelf niet gereproduceerd
-(geeft 23.10 m / 6.33 m / 39°). **TODO:** vervangen door de exacte Excel-formules
-zodra de gebruiker die deelt.
+`app/src/lib/fysica.ts` — **exacte port van de Excel van de gebruiker**
+(VoorBas_volledig.xlsx, Blad1). Twee passes: (1) hoek-sweep 90°→1° die de optimale
+uitspronghoek vindt door de balistische afstand (slingerenergie uit PEtop/Inertia +
+afzetimpuls) te maximaliseren; (2) tijdstap-integratie (dt=0.02s) met luchtweerstand
+vanaf het uitsprongpunt tot de landing op het zandbed. Gevalideerd tegen de
+spreadsheet: stok_op=10.5, massa_springer=88, L=13.25, impuls=40, schans 4.0/1.7 →
+begin stok 5.16 m, hoek 44°, totaal 19.85 m (exacte match).
+
+Inputs: stok_op (per sprong, handmatig), massa_springer/stoklengte/uitsprongstoot/
+springer_gestrekt (uit Profiel), waterdiepte/schanshoogte (schans, nu defaults),
+massa_polsstok=20 + snelheid_overgaan=0 + CW=1 + Effopp=0.15 (constanten). Op de
+wedstrijd-detailpagina wordt het theoretisch max berekend zodra stok_op is ingevuld.
 
 ## Winddata
 

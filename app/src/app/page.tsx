@@ -81,6 +81,7 @@ export default function InvullenPage() {
   const fysicaConfig = useMemo(() => {
     if (!wedstrijd) return FYSICA_DEFAULTS;
     return {
+      ...FYSICA_DEFAULTS,
       massa_kg: profiel?.massa_kg ?? FYSICA_DEFAULTS.massa_kg,
       stoklengte_m: profiel?.stoklengte_m ?? FYSICA_DEFAULTS.stoklengte_m,
       uitsprongstoot_ns: profiel?.uitsprongstoot_ns ?? FYSICA_DEFAULTS.uitsprongstoot_ns,
