@@ -158,31 +158,45 @@ export default function InvullenPage() {
             ) : windFout ? (
               <p className="muted">{windFout}</p>
             ) : windNu ? (
-              <div className="windnu-body">
-                <span
-                  className="windnu-pijl"
-                  style={windNu.windrichting_graden != null
-                    ? { transform: `rotate(${(windNu.windrichting_graden + 180) % 360}deg)` }
-                    : undefined}
-                >
-                  <ArrowUp size={26} />
-                </span>
-                <div>
-                  <div>
-                    <span className="windnu-waarde">{windNu.wind_ms} m/s</span>
-                    {windNu.windtype && <span className={`windnu-type ${windNu.windtype}`}>{windNu.windtype}</span>}
-                  </div>
-                  <div className="windnu-sub">
-                    {[
-                      kompas ? `uit ${kompas}` : null,
-                      windNu.windvlagen_ms != null ? `vlagen ${windNu.windvlagen_ms} m/s` : null,
-                      windNu.wind_station ? `station ${windNu.wind_station}` : null,
-                    ]
-                      .filter(Boolean)
-                      .join(" · ")}
-                  </div>
-                </div>
-              </div>
+              (() => {
+                const schansRel = windNu.orientatie_graden != null && windNu.windrichting_graden != null;
+                const rotatie =
+                  windNu.windrichting_graden == null
+                    ? null
+                    : schansRel
+                      ? ((windNu.windrichting_graden + 180 - (windNu.orientatie_graden as number)) % 360 + 360) % 360
+                      : (windNu.windrichting_graden + 180) % 360;
+                return (
+                  <>
+                    <div className="windnu-body">
+                      <span
+                        className="windnu-pijl"
+                        style={rotatie != null ? { transform: `rotate(${rotatie}deg)` } : undefined}
+                      >
+                        <ArrowUp size={26} />
+                      </span>
+                      <div>
+                        <div>
+                          <span className="windnu-waarde">{windNu.wind_ms} m/s</span>
+                          {windNu.windtype && <span className={`windnu-type ${windNu.windtype}`}>{windNu.windtype}</span>}
+                        </div>
+                        <div className="windnu-sub">
+                          {[
+                            kompas ? `uit ${kompas}` : null,
+                            windNu.windvlagen_ms != null ? `vlagen ${windNu.windvlagen_ms} m/s` : null,
+                            windNu.wind_station ? `station ${windNu.wind_station}` : null,
+                          ]
+                            .filter(Boolean)
+                            .join(" · ")}
+                        </div>
+                      </div>
+                    </div>
+                    <div className="windnu-sub" style={{ marginTop: 8 }}>
+                      Pijl wijst waar de wind heen waait — {schansRel ? "↑ = jouw springrichting" : "↑ = noord (schans-oriëntatie onbekend)"}
+                    </div>
+                  </>
+                );
+              })()
             ) : (
               <p className="muted">Geen winddata beschikbaar.</p>
             )}
