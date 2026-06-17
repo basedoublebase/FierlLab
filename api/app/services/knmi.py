@@ -59,13 +59,14 @@ def _tenmin_filename(slot_utc: datetime) -> str:
 
 def _download_url(dataset: str, version: str, filename: str) -> str:
     url = f"{API_BASE}/{dataset}/versions/{version}/files/{filename}/url"
-    # KNMI hanteert een burst-limiet (~1/s). Bij een 429 kort wachten en opnieuw
-    # proberen, zodat een piek van gelijktijdige aanvragen niet als fout opduikt.
-    pogingen = 4
+    # KNMI hanteert een korte burst-limiet. Bij een 429 één keer kort opnieuw
+    # proberen (een losse botsing opvangen), maar niet blijven hameren — dat
+    # verzadigt de limiet alleen maar en laat de gebruiker lang wachten.
+    pogingen = 2
     for i in range(pogingen):
         resp = httpx.get(url, headers={"Authorization": _api_key()}, timeout=20)
         if resp.status_code == 429 and i < pogingen - 1:
-            time.sleep(1.0 + i)  # 1s, 2s, 3s
+            time.sleep(1.2)
             continue
         break
     if resp.status_code == 404:
