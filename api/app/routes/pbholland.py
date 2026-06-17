@@ -261,6 +261,46 @@ def wedstrijden(user: CurrentUser, session: Session = Depends(get_db_session)) -
     }
 
 
+@router.get("/pbholland/wind-nu")
+def wind_nu(plaats: str, user: CurrentUser, session: Session = Depends(get_db_session)) -> dict:
+    """Actuele wind voor een schans (laatste beschikbare KNMI-slot, ~15 min terug)."""
+    coords = pbholland.coords_voor_plaats(plaats)
+    if coords is None:
+        raise HTTPException(status_code=422, detail=f"Geen coördinaten bekend voor schans '{plaats}'.")
+    ts_utc = datetime.now(timezone.utc) - timedelta(minutes=15)
+    slot = ts_utc.replace(minute=(ts_utc.minute // 10) * 10, second=0, microsecond=0)
+    slot_key = slot.strftime("%Y%m%d%H%M")
+    cached = session.scalars(
+        select(WindCache).where(WindCache.plaats == plaats, WindCache.slot_key == slot_key)
+    ).first()
+    if cached is not None:
+        return _wind_dict(cached, plaats)
+    try:
+        wind = haal_knmi_wind(coords[0], coords[1], ts_utc)
+    except KnmiError as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
+    session.add(WindCache(
+        plaats=plaats, slot_key=slot_key, wind_ms=wind.get("wind_ms"),
+        windrichting_graden=wind.get("windrichting_graden"), windvlagen_ms=wind.get("windvlagen_ms"),
+        wind_station=wind.get("wind_station"), wind_station_afstand_km=wind.get("wind_station_afstand_km"),
+        wind_resolutie=wind.get("wind_resolutie"), wind_gevalideerd=wind.get("wind_gevalideerd"),
+    ))
+    session.commit()
+    return _voeg_windtype_toe(wind, plaats)
+
+
+@router.get("/pbholland/aankomend")
+def aankomend(user: CurrentUser, session: Session = Depends(get_db_session)) -> dict:
+    """Aankomende wedstrijden waarvoor de springer is aangemeld + welke vandaag is."""
+    profiel = _gekoppeld_profiel(user, session)
+    try:
+        lijst = pbholland.haal_aankomend(profiel.pbholland_id, profiel.naam or None)
+    except httpx.HTTPError as exc:
+        raise HTTPException(status_code=503, detail="pbholland.com is tijdelijk niet bereikbaar.") from exc
+    vandaag = date.today().isoformat()
+    return {"vandaag": vandaag, "wedstrijden": lijst}
+
+
 @router.get("/pbholland/wedstrijd/{id_wedstrijd}")
 def wedstrijd_detail(
     id_wedstrijd: int, user: CurrentUser, session: Session = Depends(get_db_session)

@@ -1374,6 +1374,79 @@ select.text-input:focus {
   color: inherit;
 }
 
+/* ── Wind nu (Vandaag-kaart) ─────────────────────────────────────────── */
+
+.windnu-card {
+  background: linear-gradient(135deg, #eef4fb, #e3ecf7);
+}
+
+.windnu-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  margin-bottom: 10px;
+}
+
+.windnu-body {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+}
+
+.windnu-pijl {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 52px;
+  height: 52px;
+  border-radius: 50%;
+  background: rgba(0, 104, 204, 0.12);
+  color: var(--info);
+  flex-shrink: 0;
+}
+
+.windnu-waarde {
+  font-size: 2.1rem;
+  font-weight: 800;
+  letter-spacing: -0.03em;
+  line-height: 1;
+}
+
+.windnu-sub {
+  font-size: 0.9rem;
+  color: var(--text-soft);
+  margin-top: 3px;
+}
+
+.windnu-type {
+  display: inline-flex;
+  align-items: center;
+  height: 24px;
+  padding: 0 10px;
+  border-radius: 999px;
+  font-size: 0.8rem;
+  font-weight: 700;
+  margin-left: 8px;
+}
+
+.windnu-type.rugwind { background: var(--success-bg); color: var(--success); }
+.windnu-type.tegenwind { background: var(--error-bg); color: var(--error); }
+.windnu-type.zijwind { background: var(--surface-muted); color: var(--text-soft); }
+
+.vandaag-badge {
+  display: inline-flex;
+  align-items: center;
+  height: 22px;
+  padding: 0 9px;
+  border-radius: 999px;
+  background: var(--accent);
+  color: #fff;
+  font-size: 0.72rem;
+  font-weight: 700;
+  margin-left: 8px;
+}
+
 /* ── Wedstrijd-detailpagina (sprongkaarten) ──────────────────────────── */
 
 .wed-detail-kop {

@@ -280,6 +280,66 @@ def _statistieken(profiel: dict, resultaten: list[dict]) -> dict:
     }
 
 
+_MAANDEN = {
+    "januari": 1, "februari": 2, "maart": 3, "april": 4, "mei": 5, "juni": 6,
+    "juli": 7, "augustus": 8, "september": 9, "oktober": 10, "november": 11, "december": 12,
+}
+
+
+def _parse_nl_datum(tekst: str) -> str | None:
+    """'za, 20 juni 2026' → '2026-06-20'."""
+    m = re.search(r"(\d{1,2})\s+([a-z]+)\s+(\d{4})", tekst.lower())
+    if not m:
+        return None
+    dag, maandnaam, jaar = int(m.group(1)), m.group(2), int(m.group(3))
+    maand = _MAANDEN.get(maandnaam)
+    if maand is None:
+        return None
+    try:
+        return date(jaar, maand, dag).isoformat()
+    except ValueError:
+        return None
+
+
+_aankomend_cache: dict[int, tuple[list[dict], float]] = {}
+
+
+def haal_aankomend(id_persoon: int, naam_hint: str | None = None) -> list[dict]:
+    """Aankomende wedstrijden waarvoor de springer is aangemeld."""
+    cached = _aankomend_cache.get(id_persoon)
+    if cached is not None and cached[1] > time.monotonic():
+        return cached[0]
+
+    persoon = _haal(f"{BASE}/persooninfo/?id_persoon={id_persoon}")
+    profiel = parse_profiel(persoon)
+    aankomend: list[dict] = []
+    if profiel["id_springer"]:
+        pagina = _haal(f"{BASE}/springer_aangemeldvoorwedstrijden/?id_springer={profiel['id_springer']}")
+        idx = pagina.find('id="nfb_data"')
+        seg = pagina[idx:] if idx != -1 else pagina
+        seg = seg[: seg.find("</table>") + 8] if "</table>" in seg else seg
+        for rij in re.findall(r"<tr>(.*?)</tr>", seg, re.S):
+            cellen = _rij_cellen(rij)
+            if len(cellen) < 5 or cellen[1].lower() == "datum":
+                continue
+            datum = _parse_nl_datum(cellen[1])
+            if datum is None:
+                continue
+            wid = re.search(r"id_wedstrijd=(\d+)", rij)
+            aankomend.append({
+                "id_wedstrijd": int(wid.group(1)) if wid else None,
+                "datum": datum,
+                "tijd": cellen[2] or None,
+                "plaats": cellen[3],
+                "wedstrijd": cellen[4],
+            })
+
+    if len(_aankomend_cache) > 200:
+        _aankomend_cache.clear()
+    _aankomend_cache[id_persoon] = (aankomend, time.monotonic() + _CACHE_TTL)
+    return aankomend
+
+
 # ── Wedstrijden-overzicht + detail per wedstrijd ──────────────────────────
 
 _wedstrijden_cache: dict[int, tuple[dict, float]] = {}

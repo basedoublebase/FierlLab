@@ -314,6 +314,24 @@ export async function fetchPbhWedstrijden(): Promise<PbhWedstrijdenLijst> {
   return parseJson<PbhWedstrijdenLijst>(response);
 }
 
+export type PbhAankomend = {
+  id_wedstrijd: number | null;
+  datum: string;
+  tijd: string | null;
+  plaats: string;
+  wedstrijd: string;
+};
+
+export async function fetchPbhAankomend(): Promise<{ vandaag: string; wedstrijden: PbhAankomend[] }> {
+  const response = await apiFetch("/pbholland/aankomend", { cache: "no-store" });
+  return parseJson(response);
+}
+
+export async function fetchPbhWindNu(plaats: string): Promise<PbhWind> {
+  const response = await apiFetch(`/pbholland/wind-nu?plaats=${encodeURIComponent(plaats)}`, { cache: "no-store" });
+  return parseJson<PbhWind>(response);
+}
+
 export async function fetchPbhWedstrijdDetail(idWedstrijd: number): Promise<PbhWedstrijdDetail> {
   const response = await apiFetch(`/pbholland/wedstrijd/${idWedstrijd}`, { cache: "no-store" });
   return parseJson<PbhWedstrijdDetail>(response);
