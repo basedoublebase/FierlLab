@@ -17,6 +17,7 @@ from __future__ import annotations
 import io
 import math
 import os
+import time
 from datetime import datetime, timedelta, timezone
 
 import httpx
@@ -58,11 +59,19 @@ def _tenmin_filename(slot_utc: datetime) -> str:
 
 def _download_url(dataset: str, version: str, filename: str) -> str:
     url = f"{API_BASE}/{dataset}/versions/{version}/files/{filename}/url"
-    resp = httpx.get(url, headers={"Authorization": _api_key()}, timeout=20)
+    # KNMI hanteert een burst-limiet (~1/s). Bij een 429 kort wachten en opnieuw
+    # proberen, zodat een piek van gelijktijdige aanvragen niet als fout opduikt.
+    pogingen = 4
+    for i in range(pogingen):
+        resp = httpx.get(url, headers={"Authorization": _api_key()}, timeout=20)
+        if resp.status_code == 429 and i < pogingen - 1:
+            time.sleep(1.0 + i)  # 1s, 2s, 3s
+            continue
+        break
     if resp.status_code == 404:
         raise KnmiError("Voor dit tijdstip is (nog) geen KNMI-bestand beschikbaar.")
     if resp.status_code == 429:
-        raise KnmiError("KNMI-limiet bereikt; probeer het over een paar minuten opnieuw.")
+        raise KnmiError("KNMI is even druk; probeer het zo opnieuw.")
     if resp.status_code in (401, 403):
         raise KnmiError("KNMI-API-key ongeldig of verlopen.")
     resp.raise_for_status()
