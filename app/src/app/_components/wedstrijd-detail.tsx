@@ -18,6 +18,7 @@ type WindStatus = {
   laden: boolean;
   ms?: number;
   graden?: number | null;
+  orientatie?: number | null;
   windtype?: string;
   geschat?: boolean;
   fout?: boolean;
@@ -125,7 +126,14 @@ export function WedstrijdDetail({ idWedstrijd, toonHeader = true }: { idWedstrij
       if (p.wind && p.wind.wind_ms != null) {
         setWind((w) => ({
           ...w,
-          [i]: { laden: false, ms: p.wind!.wind_ms, graden: p.wind!.windrichting_graden, windtype: p.wind!.windtype, geschat },
+          [i]: {
+            laden: false,
+            ms: p.wind!.wind_ms,
+            graden: p.wind!.windrichting_graden,
+            orientatie: p.wind!.orientatie_graden ?? null,
+            windtype: p.wind!.windtype,
+            geschat,
+          },
         }));
         return;
       }
@@ -135,7 +143,14 @@ export function WedstrijdDetail({ idWedstrijd, toonHeader = true }: { idWedstrij
           if (actief)
             setWind((w) => ({
               ...w,
-              [i]: { laden: false, ms: res.wind_ms, graden: res.windrichting_graden, windtype: res.windtype, geschat },
+              [i]: {
+                laden: false,
+                ms: res.wind_ms,
+                graden: res.windrichting_graden,
+                orientatie: res.orientatie_graden ?? null,
+                windtype: res.windtype,
+                geschat,
+              },
             }));
         })
         .catch(() => {
@@ -285,7 +300,13 @@ export function WedstrijdDetail({ idWedstrijd, toonHeader = true }: { idWedstrij
                         <ArrowUp
                           size={15}
                           className="meet-wind-pijl"
-                          style={{ transform: `rotate(${(w.graden + 180) % 360}deg)` }}
+                          style={{
+                            transform: `rotate(${
+                              w.orientatie != null
+                                ? ((w.graden + 180 - w.orientatie) % 360 + 360) % 360
+                                : (w.graden + 180) % 360
+                            }deg)`,
+                          }}
                         />
                       )}
                       {w.ms} m/s
