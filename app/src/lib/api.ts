@@ -258,9 +258,18 @@ export type PbhStatistieken = {
   gemiddelde_afwijking: number | null;
 };
 
+// Korte client-cache zodat terugkeren naar een tab niet opnieuw wacht op de keten.
+const PBH_TTL_MS = 300_000;
+let pbhStatistiekenCache: CacheEntry<PbhStatistieken> | null = null;
+
 export async function fetchPbhStatistieken(): Promise<PbhStatistieken> {
+  if (pbhStatistiekenCache && Date.now() - pbhStatistiekenCache.ts < PBH_TTL_MS) {
+    return pbhStatistiekenCache.data;
+  }
   const response = await apiFetch("/pbholland/statistieken", { cache: "no-store" });
-  return parseJson<PbhStatistieken>(response);
+  const data = await parseJson<PbhStatistieken>(response);
+  pbhStatistiekenCache = { data, ts: Date.now() };
+  return data;
 }
 
 export type PbhWedstrijd = {
@@ -309,9 +318,16 @@ export type PbhWedstrijdDetail = {
   categorie: string | null;
 };
 
+let pbhWedstrijdenCache: CacheEntry<PbhWedstrijdenLijst> | null = null;
+
 export async function fetchPbhWedstrijden(): Promise<PbhWedstrijdenLijst> {
+  if (pbhWedstrijdenCache && Date.now() - pbhWedstrijdenCache.ts < PBH_TTL_MS) {
+    return pbhWedstrijdenCache.data;
+  }
   const response = await apiFetch("/pbholland/wedstrijden", { cache: "no-store" });
-  return parseJson<PbhWedstrijdenLijst>(response);
+  const data = await parseJson<PbhWedstrijdenLijst>(response);
+  pbhWedstrijdenCache = { data, ts: Date.now() };
+  return data;
 }
 
 export type PbhAankomend = {
@@ -322,9 +338,16 @@ export type PbhAankomend = {
   wedstrijd: string;
 };
 
+let pbhAankomendCache: CacheEntry<{ vandaag: string; wedstrijden: PbhAankomend[] }> | null = null;
+
 export async function fetchPbhAankomend(): Promise<{ vandaag: string; wedstrijden: PbhAankomend[] }> {
+  if (pbhAankomendCache && Date.now() - pbhAankomendCache.ts < PBH_TTL_MS) {
+    return pbhAankomendCache.data;
+  }
   const response = await apiFetch("/pbholland/aankomend", { cache: "no-store" });
-  return parseJson(response);
+  const data = await parseJson<{ vandaag: string; wedstrijden: PbhAankomend[] }>(response);
+  pbhAankomendCache = { data, ts: Date.now() };
+  return data;
 }
 
 export async function fetchPbhWindNu(plaats: string): Promise<PbhWind> {
