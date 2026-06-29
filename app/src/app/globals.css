@@ -981,6 +981,106 @@ select.text-input:focus {
   stroke-linejoin: round;
 }
 
+.chart-trend {
+  fill: none;
+  stroke: var(--text-soft);
+  stroke-width: 1.6;
+  stroke-dasharray: 5 4;
+  opacity: 0.7;
+}
+
+/* ── Filterknop + popover ─────────────────────────────────────────────── */
+
+.hero-met-knop {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.filter-wrap {
+  position: relative;
+  flex-shrink: 0;
+}
+
+.filter-knop {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 42px;
+  height: 42px;
+  border-radius: 50%;
+  border: 1px solid var(--line);
+  background: var(--surface);
+  color: var(--text-soft);
+  cursor: pointer;
+  transition: border-color 120ms ease, color 120ms ease, background 120ms ease;
+}
+
+.filter-knop:hover {
+  border-color: var(--line-strong);
+  color: var(--text);
+}
+
+.filter-knop.actief {
+  border-color: var(--accent);
+  color: var(--accent);
+  background: var(--accent-soft);
+}
+
+.filter-dot {
+  position: absolute;
+  top: 8px;
+  right: 8px;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--accent);
+  border: 1.5px solid var(--surface);
+}
+
+.filter-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 55;
+}
+
+.filter-popover {
+  position: absolute;
+  top: calc(100% + 8px);
+  right: 0;
+  z-index: 60;
+  width: 260px;
+  padding: 14px;
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-md);
+  box-shadow: var(--shadow);
+  display: grid;
+  gap: 10px;
+}
+
+.filter-popover-titel {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  font-size: 0.8rem;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--text-faint);
+}
+
+.filter-reset {
+  border: none;
+  background: none;
+  color: var(--accent);
+  font-size: 0.78rem;
+  font-weight: 600;
+  cursor: pointer;
+  padding: 0;
+}
+
 .chart-empty {
   font-size: 0.86rem;
   color: var(--text-faint);

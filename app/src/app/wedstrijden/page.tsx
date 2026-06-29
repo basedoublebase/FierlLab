@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
-import { ChevronDown, ChevronRight, LineChart, MapPin, Trophy } from "lucide-react";
+import { ChevronDown, ChevronRight, Filter, LineChart, MapPin, Trophy } from "lucide-react";
 
 import { type PbhSprongPunt, type PbhWedstrijd, fetchPbhSprongen, fetchPbhWedstrijden } from "@/lib/api";
 import { formatDatum, seizoenVan } from "@/lib/date";
@@ -18,6 +18,8 @@ export default function WedstrijdenPage() {
   const [schans, setSchans] = useState("alle");
   const [seizoen, setSeizoen] = useState("alle");
   const [grafiekOpen, setGrafiekOpen] = useState(false);
+  const [filtersOpen, setFiltersOpen] = useState(false);
+  const actiefFilter = categorie !== "alle" || schans !== "alle" || seizoen !== "alle";
 
   useEffect(() => {
     let actief = true;
@@ -85,7 +87,28 @@ export default function WedstrijdenPage() {
     const ySpan = Math.max(0.5, yMax - yMin);
     const px = (v: number) => PAD.l + ((v - xMin) / xSpan) * (W - PAD.l - PAD.r);
     const py = (v: number) => PAD.t + (1 - (v - yMin) / ySpan) * (H - PAD.t - PAD.b);
-    return { punten, W, H, PAD, xMin, xMax, yMin, yMax, px, py };
+
+    // Trendlijn via kleinste-kwadraten (alleen zinvol bij >=2 punten met spreiding in x).
+    let trend: { x1: number; y1: number; x2: number; y2: number } | null = null;
+    const n = punten.length;
+    if (n >= 2) {
+      const sx = xs.reduce((a, b) => a + b, 0);
+      const sy = ys.reduce((a, b) => a + b, 0);
+      const sxx = xs.reduce((a, b) => a + b * b, 0);
+      const sxy = punten.reduce((a, p) => a + p.stok_op_m * p.afstand, 0);
+      const noemer = n * sxx - sx * sx;
+      if (noemer !== 0) {
+        const helling = (n * sxy - sx * sy) / noemer;
+        const intercept = (sy - helling * sx) / n;
+        trend = {
+          x1: px(xMin),
+          y1: py(helling * xMin + intercept),
+          x2: px(xMax),
+          y2: py(helling * xMax + intercept),
+        };
+      }
+    }
+    return { punten, W, H, PAD, xMin, xMax, yMin, yMax, px, py, trend };
   }, [sprongen, categorie, schans, seizoen]);
 
   if (laden) {
@@ -124,33 +147,63 @@ export default function WedstrijdenPage() {
 
   return (
     <main className="shell">
-      <header className="hero">
-        <p className="eyebrow">Overzicht</p>
-        <h1>Wedstrijden</h1>
+      <header className="hero hero-met-knop">
+        <div>
+          <p className="eyebrow">Overzicht</p>
+          <h1>Wedstrijden</h1>
+        </div>
+        <div className="filter-wrap">
+          <button
+            type="button"
+            className={`filter-knop${actiefFilter ? " actief" : ""}`}
+            onClick={() => setFiltersOpen((o) => !o)}
+            aria-label="Filters"
+            aria-expanded={filtersOpen}
+          >
+            <Filter size={18} />
+            {actiefFilter && <span className="filter-dot" />}
+          </button>
+          {filtersOpen && (
+            <>
+              <div className="filter-backdrop" onClick={() => setFiltersOpen(false)} />
+              <div className="filter-popover">
+                <div className="filter-popover-titel">
+                  <span>Filters</span>
+                  {actiefFilter && (
+                    <button
+                      type="button"
+                      className="filter-reset"
+                      onClick={() => { setCategorie("alle"); setSchans("alle"); setSeizoen("alle"); }}
+                    >
+                      Wissen
+                    </button>
+                  )}
+                </div>
+                <select className="text-input" value={categorie} onChange={(e) => setCategorie(e.target.value)}>
+                  <option value="alle">Alle categorieën</option>
+                  {categorieen.map((c) => (
+                    <option key={c} value={c}>{c}</option>
+                  ))}
+                </select>
+                <select className="text-input" value={schans} onChange={(e) => setSchans(e.target.value)}>
+                  <option value="alle">Alle schansen</option>
+                  {schansen.map((s) => (
+                    <option key={s} value={s}>{s}</option>
+                  ))}
+                </select>
+                <select className="text-input" value={seizoen} onChange={(e) => setSeizoen(e.target.value)}>
+                  <option value="alle">Alle seizoenen</option>
+                  {seizoenen.map((j) => (
+                    <option key={j} value={String(j)}>{j}</option>
+                  ))}
+                </select>
+              </div>
+            </>
+          )}
+        </div>
       </header>
 
       {fout && <div className="banner error">{fout}</div>}
-
-      <div className="wed-filters">
-        <select className="text-input" value={categorie} onChange={(e) => setCategorie(e.target.value)}>
-          <option value="alle">Alle categorieën</option>
-          {categorieen.map((c) => (
-            <option key={c} value={c}>{c}</option>
-          ))}
-        </select>
-        <select className="text-input" value={schans} onChange={(e) => setSchans(e.target.value)}>
-          <option value="alle">Alle schansen</option>
-          {schansen.map((s) => (
-            <option key={s} value={s}>{s}</option>
-          ))}
-        </select>
-        <select className="text-input" value={seizoen} onChange={(e) => setSeizoen(e.target.value)}>
-          <option value="alle">Alle seizoenen</option>
-          {seizoenen.map((j) => (
-            <option key={j} value={String(j)}>{j}</option>
-          ))}
-        </select>
-      </div>
 
       {/* Uitklapbare grafiek: stok op vs afstand */}
       <section className="card wed-kaart">
@@ -189,6 +242,9 @@ export default function WedstrijdenPage() {
                       <text key={`x${f}`} className="chart-tick" x={xx} y={scatter.H - 24} textAnchor="middle">{waarde.toFixed(1)}</text>
                     );
                   })}
+                  {scatter.trend && (
+                    <line className="chart-trend" x1={scatter.trend.x1} y1={scatter.trend.y1} x2={scatter.trend.x2} y2={scatter.trend.y2} />
+                  )}
                   {scatter.punten.map((p, i) => (
                     <circle key={i} className="chart-point" cx={scatter.px(p.stok_op_m)} cy={scatter.py(p.afstand)} r={4} />
                   ))}
