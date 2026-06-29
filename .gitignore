@@ -14,3 +14,4 @@ tsconfig.tsbuildinfo
 .DS_Store
 desktop.ini
 *.xlsx
+*.html

@@ -23,6 +23,7 @@ _TOEGEVOEGDE_KOLOMMEN: dict[str, dict[str, str]] = {
     },
     "profielen": {
         "pbholland_lijst_fetched_at": "TIMESTAMP",
+        "pbholland_klassement_fetched_at": "TIMESTAMP",
     },
 }
 

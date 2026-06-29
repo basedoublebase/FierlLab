@@ -24,3 +24,5 @@ class Profiel(Base):
     pbholland_id: Mapped[int | None] = mapped_column(Integer, nullable=True)
     # Wanneer de pbholland-wedstrijdenlijst voor het laatst is gescrapet.
     pbholland_lijst_fetched_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    # Eénmalige marker zodat het klassement na de upgrade één keer wordt opgehaald.
+    pbholland_klassement_fetched_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)

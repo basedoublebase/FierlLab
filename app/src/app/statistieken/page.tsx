@@ -19,6 +19,7 @@ export default function StatistiekenPage() {
   const [laden, setLaden] = useState(true);
   const [nietGekoppeld, setNietGekoppeld] = useState(false);
   const [fout, setFout] = useState<string | null>(null);
+  const [grafiekKeuze, setGrafiekKeuze] = useState("pr_tot");
 
   useEffect(() => {
     let actief = true;
@@ -40,25 +41,61 @@ export default function StatistiekenPage() {
     };
   }, []);
 
-  // PR-verloop grafiek (lopend PR per seizoen).
+  // Beschikbare grafieken (afhankelijk van wat er aan data is).
+  const grafiekOpties = useMemo(() => {
+    if (!stats) return [];
+    const s = stats.pr_per_seizoen;
+    const kl = stats.klassement_per_seizoen ?? [];
+    type Optie = {
+      key: string;
+      label: string;
+      punten: { jaar: number; waarde: number }[];
+      decimalen: number;
+      eenheid: string;
+      inverteer?: boolean;
+    };
+    const opties: Optie[] = [];
+    if (s.length) {
+      opties.push({ key: "pr_tot", label: "PR-verloop", punten: s.map((p) => ({ jaar: p.jaar, waarde: p.pr_tot })), decimalen: 2, eenheid: " m" });
+      opties.push({ key: "seizoensbeste", label: "Seizoensrecord", punten: s.map((p) => ({ jaar: p.jaar, waarde: p.seizoensbeste })), decimalen: 2, eenheid: " m" });
+      opties.push({ key: "gemiddelde", label: "Gemiddelde", punten: s.map((p) => ({ jaar: p.jaar, waarde: p.gemiddelde })), decimalen: 2, eenheid: " m" });
+      opties.push({ key: "aantal", label: "Wedstrijden", punten: s.map((p) => ({ jaar: p.jaar, waarde: p.aantal_wedstrijden })), decimalen: 0, eenheid: "" });
+    }
+    const klPos = kl.filter((k) => k.positie != null);
+    if (klPos.length) opties.push({ key: "positie", label: "Klassement-positie", punten: klPos.map((k) => ({ jaar: k.jaar, waarde: k.positie as number })), decimalen: 0, eenheid: "e", inverteer: true });
+    const klTot = kl.filter((k) => k.totaal != null);
+    if (klTot.length) opties.push({ key: "totaal", label: "Klassement-score", punten: klTot.map((k) => ({ jaar: k.jaar, waarde: k.totaal as number })), decimalen: 2, eenheid: "" });
+    return opties;
+  }, [stats]);
+
+  const actieveOptie = useMemo(
+    () => grafiekOpties.find((o) => o.key === grafiekKeuze) ?? grafiekOpties[0] ?? null,
+    [grafiekOpties, grafiekKeuze]
+  );
+
   const grafiek = useMemo(() => {
-    if (!stats || stats.pr_per_seizoen.length === 0) return null;
-    const punten = stats.pr_per_seizoen.map((p) => ({ jaar: p.jaar, waarde: p.pr_tot }));
+    const opt = actieveOptie;
+    if (!opt || opt.punten.length === 0) return null;
+    const punten = opt.punten;
     const W = 600;
     const H = 190;
-    const PAD = { l: 34, r: 14, t: 14, b: 40 };
+    const PAD = { l: 40, r: 14, t: 14, b: 40 };
     const waarden = punten.map((p) => p.waarde);
     const min = Math.min(...waarden);
     const max = Math.max(...waarden);
-    const span = Math.max(0.5, max - min);
+    const span = Math.max(opt.decimalen === 0 ? 1 : 0.5, max - min);
     const x = (i: number) =>
       punten.length === 1 ? (W + PAD.l - PAD.r) / 2 : PAD.l + (i / (punten.length - 1)) * (W - PAD.l - PAD.r);
-    const y = (w: number) => PAD.t + (1 - (w - min) / span) * (H - PAD.t - PAD.b);
+    // inverteer: lagere waarde = beter (klassement-positie) → hoger in beeld.
+    const y = (w: number) =>
+      opt.inverteer
+        ? PAD.t + ((w - min) / span) * (H - PAD.t - PAD.b)
+        : PAD.t + (1 - (w - min) / span) * (H - PAD.t - PAD.b);
     const pad = `M ${punten.map((p, i) => `${x(i).toFixed(1)} ${y(p.waarde).toFixed(1)}`).join(" L ")}`;
-    // Toon maximaal ~8 jaarlabels zodat het niet overvol wordt.
     const stap = Math.ceil(punten.length / 8);
-    return { punten, W, H, PAD, min, max, x, y, pad, stap };
-  }, [stats]);
+    const fmt = (w: number) => `${opt.decimalen === 0 ? Math.round(w) : w.toFixed(opt.decimalen)}${opt.eenheid}`;
+    return { punten, W, H, PAD, min, max, x, y, pad, stap, fmt };
+  }, [actieveOptie]);
 
   // Afwijkingsbalken: schaal t.o.v. de grootste waarde.
   const balken = useMemo(() => {
@@ -167,36 +204,50 @@ export default function StatistiekenPage() {
         </div>
       </div>
 
-      {/* PR-verloop per seizoen */}
+      {/* Grafieken met keuzeknop */}
       <section className="card">
-        <div className="section-header">
-          <h2 style={{ textTransform: "uppercase", letterSpacing: "0.04em", fontSize: "0.92rem" }}>PR-verloop per seizoen</h2>
+        <div className="ts-chips">
+          {grafiekOpties.map((o) => (
+            <button
+              key={o.key}
+              type="button"
+              className={`ts-chip${actieveOptie?.key === o.key ? " active" : ""}`}
+              onClick={() => setGrafiekKeuze(o.key)}
+            >
+              {o.label}
+            </button>
+          ))}
         </div>
         {grafiek ? (
-          <svg className="ts-svg" viewBox={`0 0 ${grafiek.W} ${grafiek.H}`} role="img" aria-label="PR-verloop per seizoen">
-            {[0, 0.5, 1].map((f) => {
-              const waarde = grafiek.min + f * (grafiek.max - grafiek.min);
-              const yy = grafiek.y(waarde);
-              return (
-                <g key={f}>
-                  <line className="chart-grid" x1={grafiek.PAD.l} x2={grafiek.W - grafiek.PAD.r} y1={yy} y2={yy} />
-                  <text className="chart-tick" x={2} y={yy + 3}>{waarde.toFixed(1)}</text>
-                </g>
-              );
-            })}
-            <path className="chart-lijn" d={grafiek.pad} />
-            {grafiek.punten.map((p, i) => (
-              <circle key={p.jaar} className="chart-point" cx={grafiek.x(i)} cy={grafiek.y(p.waarde)} r={3.4} />
-            ))}
-            {grafiek.punten.map((p, i) =>
-              i % grafiek.stap === 0 || i === grafiek.punten.length - 1 ? (
-                <g key={`lbl-${p.jaar}`}>
-                  <text className="chart-tick" x={grafiek.x(i)} y={grafiek.H - 22} textAnchor="middle">{p.jaar}</text>
-                  <text className="chart-tick" x={grafiek.x(i)} y={grafiek.H - 9} textAnchor="middle" style={{ fontWeight: 700 }}>{p.waarde.toFixed(2)}</text>
-                </g>
-              ) : null
+          <>
+            <svg className="ts-svg" viewBox={`0 0 ${grafiek.W} ${grafiek.H}`} role="img" aria-label={actieveOptie?.label}>
+              {[0, 0.5, 1].map((f) => {
+                const waarde = grafiek.min + f * (grafiek.max - grafiek.min);
+                const yy = grafiek.y(waarde);
+                return (
+                  <g key={f}>
+                    <line className="chart-grid" x1={grafiek.PAD.l} x2={grafiek.W - grafiek.PAD.r} y1={yy} y2={yy} />
+                    <text className="chart-tick" x={2} y={yy + 3}>{grafiek.fmt(waarde)}</text>
+                  </g>
+                );
+              })}
+              <path className="chart-lijn" d={grafiek.pad} />
+              {grafiek.punten.map((p, i) => (
+                <circle key={p.jaar} className="chart-point" cx={grafiek.x(i)} cy={grafiek.y(p.waarde)} r={3.4} />
+              ))}
+              {grafiek.punten.map((p, i) =>
+                i % grafiek.stap === 0 || i === grafiek.punten.length - 1 ? (
+                  <g key={`lbl-${p.jaar}`}>
+                    <text className="chart-tick" x={grafiek.x(i)} y={grafiek.H - 22} textAnchor="middle">{p.jaar}</text>
+                    <text className="chart-tick" x={grafiek.x(i)} y={grafiek.H - 9} textAnchor="middle" style={{ fontWeight: 700 }}>{grafiek.fmt(p.waarde)}</text>
+                  </g>
+                ) : null
+              )}
+            </svg>
+            {actieveOptie?.inverteer && (
+              <p className="muted" style={{ fontSize: "0.74rem", marginTop: 6 }}>Lager = beter; hoger in de grafiek is een betere klassering.</p>
             )}
-          </svg>
+          </>
         ) : (
           <p className="chart-empty">Nog geen data.</p>
         )}

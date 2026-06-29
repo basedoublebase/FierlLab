@@ -54,6 +54,19 @@ class PbhProfiel(Base):
     aantal_sprongen: Mapped[int | None] = mapped_column(Integer, nullable=True)
 
 
+class PbhKlassement(Base):
+    """Klassement per seizoen (per gebruiker): positie + totaalscore."""
+
+    __tablename__ = "pbh_klassement"
+    __table_args__ = (UniqueConstraint("user_id", "jaar", name="uq_pbh_klassement"),)
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    user_id: Mapped[int] = mapped_column(ForeignKey("users.id"), index=True)
+    jaar: Mapped[int] = mapped_column(Integer)
+    positie: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    totaal: Mapped[float | None] = mapped_column(Float, nullable=True)
+
+
 class PbhSprong(Base):
     """Permanent opgeslagen pbholland-sprong (per gebruiker, per wedstrijd + poging)."""
 

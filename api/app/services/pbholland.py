@@ -280,6 +280,47 @@ def _statistieken(profiel: dict, resultaten: list[dict]) -> dict:
     }
 
 
+_klassement_cache: dict[int, tuple[list[dict], float]] = {}
+
+
+def haal_klassement(id_persoon: int, naam_hint: str | None = None) -> list[dict]:
+    """Klassement per seizoen (positie + totaalscore in het Algemeen Klassement)."""
+    cached = _klassement_cache.get(id_persoon)
+    if cached is not None and cached[1] > time.monotonic():
+        return cached[0]
+
+    persoon = _haal(f"{BASE}/persooninfo/?id_persoon={id_persoon}")
+    profiel = parse_profiel(persoon)
+    rijen: list[dict] = []
+    if profiel["id_springer"]:
+        pagina = _haal(f"{BASE}/springer_klassementen/?id_springer={profiel['id_springer']}")
+        m = re.search(r'<table id="nfb_data">(.*?)</table>', pagina, re.S)
+        if m:
+            jaar_huidig = None
+            for rij in re.findall(r"<tr>(.*?)</tr>", m.group(1), re.S):
+                cellen = _rij_cellen(rij)
+                if len(cellen) < 5 or cellen[0].lower() == "jaar":
+                    continue
+                if cellen[0].strip():
+                    jaar_huidig = cellen[0].strip()
+                if "algemeen klassement" not in cellen[1].lower():
+                    continue
+                if jaar_huidig is None or not jaar_huidig.isdigit():
+                    continue
+                positie = _eerste_getal(cellen[3])
+                totaal = _eerste_getal(cellen[4])
+                rijen.append({
+                    "jaar": int(jaar_huidig),
+                    "positie": int(positie) if positie is not None else None,
+                    "totaal": round(totaal, 2) if totaal is not None else None,
+                })
+
+    if len(_klassement_cache) > 200:
+        _klassement_cache.clear()
+    _klassement_cache[id_persoon] = (rijen, time.monotonic() + _CACHE_TTL)
+    return rijen
+
+
 _MAANDEN = {
     "januari": 1, "februari": 2, "maart": 3, "april": 4, "mei": 5, "juni": 6,
     "juli": 7, "augustus": 8, "september": 9, "oktober": 10, "november": 11, "december": 12,

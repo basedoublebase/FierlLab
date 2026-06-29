@@ -231,7 +231,14 @@ export async function fetchKnmiWind(pogingId: number): Promise<Poging> {
 
 // ── pbholland ────────────────────────────────────────────────────────────
 
-export type PbhPrPerSeizoen = { jaar: number; seizoensbeste: number; pr_tot: number };
+export type PbhPrPerSeizoen = {
+  jaar: number;
+  seizoensbeste: number;
+  pr_tot: number;
+  gemiddelde: number;
+  aantal_wedstrijden: number;
+};
+export type PbhKlassementSeizoen = { jaar: number; positie: number | null; totaal: number | null };
 export type PbhBesteSchans = { plaats: string; afstand: number; datum: string };
 
 export type PbhStatistieken = {
@@ -253,6 +260,7 @@ export type PbhStatistieken = {
   pr: { afstand: number; datum: string; plaats: string } | null;
   seizoensrecord: { afstand: number; jaar: number; verschil: number | null; vorig_jaar: number | null } | null;
   pr_per_seizoen: PbhPrPerSeizoen[];
+  klassement_per_seizoen: PbhKlassementSeizoen[];
   beste_per_schans: PbhBesteSchans[];
   gemiddelde_uitslag: number | null;
   gemiddelde_afwijking: number | null;

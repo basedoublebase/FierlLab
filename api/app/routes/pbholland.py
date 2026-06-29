@@ -11,7 +11,7 @@ from sqlalchemy.orm import Session
 
 from app.auth import CurrentUser
 from app.db import get_db_session
-from app.models.pbh import PbhProfiel, PbhSprong, PbhWedstrijd
+from app.models.pbh import PbhKlassement, PbhProfiel, PbhSprong, PbhWedstrijd
 from app.models.profiel import Profiel
 from app.models.sprong_invoer import SprongInvoer
 from app.models.wind_cache import WindCache
@@ -99,6 +99,7 @@ def _zorg_lijst_vers(session: Session, user_id: int, profiel: Profiel, nu: datet
         profiel.pbholland_lijst_fetched_at is None
         or (nu - profiel.pbholland_lijst_fetched_at) > _LIJST_TTL
         or not heeft_profiel  # nieuw veld nog niet gevuld → forceer één verversing
+        or profiel.pbholland_klassement_fetched_at is None  # klassement nog nooit opgehaald
     )
     if stale:
         try:
@@ -107,10 +108,29 @@ def _zorg_lijst_vers(session: Session, user_id: int, profiel: Profiel, nu: datet
             return heeft_rijen
         _upsert_lijst(session, user_id, data["wedstrijden"], nu)
         _upsert_profiel(session, user_id, data["profiel"])
+        _upsert_klassement(session, user_id, profiel.pbholland_id, profiel.naam or None)
         profiel.pbholland_lijst_fetched_at = nu
+        profiel.pbholland_klassement_fetched_at = nu
         session.commit()
         return True
     return heeft_rijen
+
+
+def _upsert_klassement(session: Session, user_id: int, id_persoon: int, naam: str | None) -> None:
+    try:
+        rijen = pbholland.haal_klassement(id_persoon, naam)
+    except httpx.HTTPError:
+        return  # klassement is bijzaak; lijst-verversing niet laten falen
+    bestaand = {
+        r.jaar: r for r in session.scalars(select(PbhKlassement).where(PbhKlassement.user_id == user_id)).all()
+    }
+    for k in rijen:
+        rij = bestaand.get(k["jaar"])
+        if rij is None:
+            rij = PbhKlassement(user_id=user_id, jaar=k["jaar"])
+            session.add(rij)
+        rij.positie = k["positie"]
+        rij.totaal = k["totaal"]
 
 router = APIRouter(tags=["pbholland"])
 
@@ -166,15 +186,25 @@ def statistieken(
         pr = {"afstand": beste.verste_afstand, "datum": beste.datum, "plaats": beste.plaats}
 
     per_jaar: dict[int, float] = {}
+    per_jaar_som: dict[int, float] = {}
+    per_jaar_aantal: dict[int, int] = {}
     for r in geldige:
         jaar = int(r.datum[:4])
         per_jaar[jaar] = max(per_jaar.get(jaar, 0), r.verste_afstand)
+        per_jaar_som[jaar] = per_jaar_som.get(jaar, 0) + r.verste_afstand
+        per_jaar_aantal[jaar] = per_jaar_aantal.get(jaar, 0) + 1
     jaren = sorted(per_jaar)
     pr_per_seizoen = []
     lopend = 0.0
     for jaar in jaren:
         lopend = max(lopend, per_jaar[jaar])
-        pr_per_seizoen.append({"jaar": jaar, "seizoensbeste": round(per_jaar[jaar], 2), "pr_tot": round(lopend, 2)})
+        pr_per_seizoen.append({
+            "jaar": jaar,
+            "seizoensbeste": round(per_jaar[jaar], 2),
+            "pr_tot": round(lopend, 2),
+            "gemiddelde": round(per_jaar_som[jaar] / per_jaar_aantal[jaar], 2),
+            "aantal_wedstrijden": per_jaar_aantal[jaar],
+        })
 
     seizoensrecord = None
     if jaren:
@@ -204,6 +234,13 @@ def statistieken(
         afwijkingen.extend(x - beste_dag for x in sprongenlijst)
     gem_afwijking = round(sum(afwijkingen) / len(afwijkingen), 2) if afwijkingen else None
 
+    klassement = session.scalars(
+        select(PbhKlassement).where(PbhKlassement.user_id == user.id).order_by(PbhKlassement.jaar)
+    ).all()
+    klassement_per_seizoen = [
+        {"jaar": k.jaar, "positie": k.positie, "totaal": k.totaal} for k in klassement
+    ]
+
     return {
         "naam": pp.naam if pp else profiel.naam,
         "vereniging": pp.vereniging if pp else None,
@@ -221,6 +258,7 @@ def statistieken(
         "pr": pr,
         "seizoensrecord": seizoensrecord,
         "pr_per_seizoen": pr_per_seizoen,
+        "klassement_per_seizoen": klassement_per_seizoen,
         "beste_per_schans": beste_per_schans,
         "gemiddelde_uitslag": gem_uitslag,
         "gemiddelde_afwijking": gem_afwijking,
