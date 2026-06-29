@@ -6,6 +6,7 @@ import { MapPin, TrendingDown, TrendingUp, Trophy } from "lucide-react";
 
 import { type PbhStatistieken, fetchPbhStatistieken } from "@/lib/api";
 import { formatDatum } from "@/lib/date";
+import { netteAs } from "@/lib/grafiek";
 
 function initialen(naam: string): string {
   const delen = naam.trim().split(/\s+/);
@@ -52,19 +53,22 @@ export default function StatistiekenPage() {
       punten: { jaar: number; waarde: number }[];
       decimalen: number;
       eenheid: string;
+      asTitel: string;
       inverteer?: boolean;
+      nulBasis?: boolean;
+      uitleg: string;
     };
     const opties: Optie[] = [];
     if (s.length) {
-      opties.push({ key: "pr_tot", label: "PR-verloop", punten: s.map((p) => ({ jaar: p.jaar, waarde: p.pr_tot })), decimalen: 2, eenheid: " m" });
-      opties.push({ key: "seizoensbeste", label: "Seizoensrecord", punten: s.map((p) => ({ jaar: p.jaar, waarde: p.seizoensbeste })), decimalen: 2, eenheid: " m" });
-      opties.push({ key: "gemiddelde", label: "Gemiddelde", punten: s.map((p) => ({ jaar: p.jaar, waarde: p.gemiddelde })), decimalen: 2, eenheid: " m" });
-      opties.push({ key: "aantal", label: "Wedstrijden", punten: s.map((p) => ({ jaar: p.jaar, waarde: p.aantal_wedstrijden })), decimalen: 0, eenheid: "" });
+      opties.push({ key: "pr_tot", label: "PR-verloop", punten: s.map((p) => ({ jaar: p.jaar, waarde: p.pr_tot })), decimalen: 2, eenheid: " m", asTitel: "Afstand (m)", uitleg: "je lopende persoonlijk record aan het eind van elk seizoen" });
+      opties.push({ key: "seizoensbeste", label: "Seizoensrecord", punten: s.map((p) => ({ jaar: p.jaar, waarde: p.seizoensbeste })), decimalen: 2, eenheid: " m", asTitel: "Afstand (m)", uitleg: "je beste sprong per seizoen" });
+      opties.push({ key: "gemiddelde", label: "Gemiddelde", punten: s.map((p) => ({ jaar: p.jaar, waarde: p.gemiddelde })), decimalen: 2, eenheid: " m", asTitel: "Afstand (m)", uitleg: "je gemiddelde verste afstand per seizoen" });
+      opties.push({ key: "aantal", label: "Wedstrijden", punten: s.map((p) => ({ jaar: p.jaar, waarde: p.aantal_wedstrijden })), decimalen: 0, eenheid: "", asTitel: "Aantal wedstrijden", nulBasis: true, uitleg: "het aantal wedstrijden per seizoen" });
     }
     const klPos = kl.filter((k) => k.positie != null);
-    if (klPos.length) opties.push({ key: "positie", label: "Klassement-positie", punten: klPos.map((k) => ({ jaar: k.jaar, waarde: k.positie as number })), decimalen: 0, eenheid: "e", inverteer: true });
+    if (klPos.length) opties.push({ key: "positie", label: "Klassement-positie", punten: klPos.map((k) => ({ jaar: k.jaar, waarde: k.positie as number })), decimalen: 0, eenheid: "e", asTitel: "Klassementsplaats", inverteer: true, uitleg: "je eindplaats in het Algemeen Klassement per seizoen (lager = beter)" });
     const klTot = kl.filter((k) => k.totaal != null);
-    if (klTot.length) opties.push({ key: "totaal", label: "Klassement-score", punten: klTot.map((k) => ({ jaar: k.jaar, waarde: k.totaal as number })), decimalen: 2, eenheid: "" });
+    if (klTot.length) opties.push({ key: "totaal", label: "Klassement-score", punten: klTot.map((k) => ({ jaar: k.jaar, waarde: k.totaal as number })), decimalen: 2, eenheid: "", asTitel: "Klassementsscore", uitleg: "je totaalscore in het Algemeen Klassement per seizoen" });
     return opties;
   }, [stats]);
 
@@ -78,23 +82,27 @@ export default function StatistiekenPage() {
     if (!opt || opt.punten.length === 0) return null;
     const punten = opt.punten;
     const W = 600;
-    const H = 190;
-    const PAD = { l: 40, r: 14, t: 14, b: 40 };
+    const H = 230;
+    const PAD = { l: 54, r: 16, t: 16, b: 52 };
     const waarden = punten.map((p) => p.waarde);
-    const min = Math.min(...waarden);
-    const max = Math.max(...waarden);
-    const span = Math.max(opt.decimalen === 0 ? 1 : 0.5, max - min);
+    const dataMin = Math.min(...waarden);
+    const dataMax = Math.max(...waarden);
+    // Ronde as-stappen; tellingen vanaf 0 (eerlijke basis voor counts).
+    const as = netteAs(opt.nulBasis ? 0 : dataMin, dataMax);
+    const domMin = opt.nulBasis ? 0 : as.domMin;
+    const dom = Math.max(as.domMax - domMin, 1e-9);
     const x = (i: number) =>
       punten.length === 1 ? (W + PAD.l - PAD.r) / 2 : PAD.l + (i / (punten.length - 1)) * (W - PAD.l - PAD.r);
     // inverteer: lagere waarde = beter (klassement-positie) → hoger in beeld.
     const y = (w: number) =>
       opt.inverteer
-        ? PAD.t + ((w - min) / span) * (H - PAD.t - PAD.b)
-        : PAD.t + (1 - (w - min) / span) * (H - PAD.t - PAD.b);
+        ? PAD.t + ((w - domMin) / dom) * (H - PAD.t - PAD.b)
+        : PAD.t + (1 - (w - domMin) / dom) * (H - PAD.t - PAD.b);
     const pad = `M ${punten.map((p, i) => `${x(i).toFixed(1)} ${y(p.waarde).toFixed(1)}`).join(" L ")}`;
     const stap = Math.ceil(punten.length / 8);
-    const fmt = (w: number) => `${opt.decimalen === 0 ? Math.round(w) : w.toFixed(opt.decimalen)}${opt.eenheid}`;
-    return { punten, W, H, PAD, min, max, x, y, pad, stap, fmt };
+    const ticks = as.ticks.filter((t) => t >= domMin - 1e-9);
+    const afgekapt = !opt.nulBasis && domMin > 0;
+    return { punten, W, H, PAD, as, ticks, decimalen: as.decimalen, x, y, pad, stap, afgekapt };
   }, [actieveOptie]);
 
   // Afwijkingsbalken: schaal t.o.v. de grootste waarde.
@@ -218,35 +226,34 @@ export default function StatistiekenPage() {
             </button>
           ))}
         </div>
-        {grafiek ? (
+        {grafiek && actieveOptie ? (
           <>
-            <svg className="ts-svg" viewBox={`0 0 ${grafiek.W} ${grafiek.H}`} role="img" aria-label={actieveOptie?.label}>
-              {[0, 0.5, 1].map((f) => {
-                const waarde = grafiek.min + f * (grafiek.max - grafiek.min);
-                const yy = grafiek.y(waarde);
-                return (
-                  <g key={f}>
-                    <line className="chart-grid" x1={grafiek.PAD.l} x2={grafiek.W - grafiek.PAD.r} y1={yy} y2={yy} />
-                    <text className="chart-tick" x={2} y={yy + 3}>{grafiek.fmt(waarde)}</text>
-                  </g>
-                );
-              })}
+            <svg className="ts-svg" style={{ height: "auto" }} viewBox={`0 0 ${grafiek.W} ${grafiek.H}`} role="img" aria-label={actieveOptie.label}>
+              {/* Y: nette ronde gridlijnen + labels */}
+              {grafiek.ticks.map((t) => (
+                <g key={`y${t}`}>
+                  <line className="chart-grid" x1={grafiek.PAD.l} x2={grafiek.W - grafiek.PAD.r} y1={grafiek.y(t)} y2={grafiek.y(t)} />
+                  <text className="chart-tick" x={grafiek.PAD.l - 8} y={grafiek.y(t) + 4} textAnchor="end">{t.toFixed(grafiek.decimalen)}</text>
+                </g>
+              ))}
               <path className="chart-lijn" d={grafiek.pad} />
               {grafiek.punten.map((p, i) => (
-                <circle key={p.jaar} className="chart-point" cx={grafiek.x(i)} cy={grafiek.y(p.waarde)} r={3.4} />
+                <circle key={p.jaar} className="chart-point" cx={grafiek.x(i)} cy={grafiek.y(p.waarde)} r={3.8} />
               ))}
+              {/* X: jaarlabels (niet overvol) */}
               {grafiek.punten.map((p, i) =>
                 i % grafiek.stap === 0 || i === grafiek.punten.length - 1 ? (
-                  <g key={`lbl-${p.jaar}`}>
-                    <text className="chart-tick" x={grafiek.x(i)} y={grafiek.H - 22} textAnchor="middle">{p.jaar}</text>
-                    <text className="chart-tick" x={grafiek.x(i)} y={grafiek.H - 9} textAnchor="middle" style={{ fontWeight: 700 }}>{grafiek.fmt(p.waarde)}</text>
-                  </g>
+                  <text key={`lbl-${p.jaar}`} className="chart-tick" x={grafiek.x(i)} y={grafiek.H - grafiek.PAD.b + 18} textAnchor="middle">{p.jaar}</text>
                 ) : null
               )}
+              <text className="chart-astitel" x={(grafiek.PAD.l + grafiek.W - grafiek.PAD.r) / 2} y={grafiek.H - 6} textAnchor="middle">Seizoen</text>
+              <text className="chart-astitel" x={-(grafiek.PAD.t + grafiek.H - grafiek.PAD.b) / 2} y={15} textAnchor="middle" transform="rotate(-90)">{actieveOptie.asTitel}</text>
             </svg>
-            {actieveOptie?.inverteer && (
-              <p className="muted" style={{ fontSize: "0.74rem", marginTop: 6 }}>Lager = beter; hoger in de grafiek is een betere klassering.</p>
-            )}
+            <p className="muted" style={{ fontSize: "0.78rem", marginTop: 8, lineHeight: 1.5 }}>
+              Per seizoen: {actieveOptie.uitleg}. <strong>{grafiek.punten.length} seizoenen</strong>.
+              {actieveOptie.inverteer && " Lager is beter, dus hoger in de grafiek = betere klassering."}
+              {grafiek.afgekapt && " De as start niet op 0 om de spreiding te tonen."}
+            </p>
           </>
         ) : (
           <p className="chart-empty">Nog geen data.</p>
