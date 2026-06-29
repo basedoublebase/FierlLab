@@ -965,7 +965,25 @@ select.text-input:focus {
 
 .chart-tick {
   fill: var(--text-faint);
-  font-size: 9px;
+  font-size: 12px;
+}
+
+.chart-astitel {
+  fill: var(--text-soft);
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.chart-band {
+  fill: var(--info);
+  opacity: 0.12;
+  stroke: none;
+}
+
+.legenda-lijn {
+  display: inline-block;
+  width: 16px;
+  border-top: 2px dashed var(--text-soft);
 }
 
 .chart-point {

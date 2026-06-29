@@ -7,6 +7,36 @@ import { ChevronDown, ChevronRight, Filter, LineChart, MapPin, Trophy } from "lu
 import { type PbhSprongPunt, type PbhWedstrijd, fetchPbhSprongen, fetchPbhWedstrijden } from "@/lib/api";
 import { formatDatum, seizoenVan } from "@/lib/date";
 
+// "Nette" as: ronde stapgrootte + domein dat strak om de data sluit, met genoeg
+// decimalen zodat elk ticklabel uniek is.
+function netteAs(min: number, max: number, doel = 5) {
+  const bereik = Math.max(max - min, 1e-9);
+  const ruw = bereik / doel;
+  const mag = Math.pow(10, Math.floor(Math.log10(ruw)));
+  const norm = ruw / mag;
+  const stap = (norm < 1.5 ? 1 : norm < 3 ? 2 : norm < 7 ? 5 : 10) * mag;
+  const domMin = Math.floor(min / stap) * stap;
+  const domMax = Math.ceil(max / stap) * stap;
+  const decimalen = Math.max(0, -Math.floor(Math.log10(stap)));
+  const ticks: number[] = [];
+  for (let v = domMin; v <= domMax + stap / 2; v += stap) ticks.push(Math.round(v / stap) * stap);
+  return { domMin, domMax, ticks, decimalen };
+}
+
+// t-waarde (tweezijdig 95%) per vrijheidsgraden, voor het betrouwbaarheidsinterval.
+function tWaarde(df: number): number {
+  const tabel: Record<number, number> = {
+    1: 12.71, 2: 4.3, 3: 3.18, 4: 2.78, 5: 2.57, 6: 2.45, 7: 2.36, 8: 2.31,
+    9: 2.26, 10: 2.23, 11: 2.2, 12: 2.18, 13: 2.16, 14: 2.14, 15: 2.13,
+    20: 2.09, 30: 2.04,
+  };
+  if (df <= 0) return 12.71;
+  if (tabel[df]) return tabel[df];
+  if (df < 20) return tabel[15];
+  if (df < 30) return tabel[20];
+  return 1.98;
+}
+
 export default function WedstrijdenPage() {
   const [lijst, setLijst] = useState<PbhWedstrijd[]>([]);
   const [sprongen, setSprongen] = useState<PbhSprongPunt[]>([]);
@@ -77,26 +107,18 @@ export default function WedstrijdenPage() {
     );
     if (punten.length === 0) return null;
     const W = 600;
-    const H = 320;
-    const PAD = { l: 46, r: 16, t: 16, b: 40 };
-    const xs = punten.map((p) => p.stok_op_m);
-    const ys = punten.map((p) => p.afstand);
-    const xMin = Math.min(...xs), xMax = Math.max(...xs);
-    const yMin = Math.min(...ys), yMax = Math.max(...ys);
-    const xSpan = Math.max(0.5, xMax - xMin);
-    const ySpan = Math.max(0.5, yMax - yMin);
-    const px = (v: number) => PAD.l + ((v - xMin) / xSpan) * (W - PAD.l - PAD.r);
-    const py = (v: number) => PAD.t + (1 - (v - yMin) / ySpan) * (H - PAD.t - PAD.b);
+    const H = 340;
+    const PAD = { l: 58, r: 18, t: 18, b: 56 };
 
-    // Lineaire regressie (kleinste kwadraten) over een subset punten.
+    // Regressie over een subset (kleinste kwadraten).
     type Reg = { helling: number; intercept: number };
     const regressie = (idx: number[]): Reg | null => {
       const m = idx.length;
       if (m < 2) return null;
       let sx = 0, sy = 0, sxx = 0, sxy = 0;
       for (const i of idx) {
-        const x = punten[i].stok_op_m, y = punten[i].afstand;
-        sx += x; sy += y; sxx += x * x; sxy += x * y;
+        sx += punten[i].stok_op_m; sy += punten[i].afstand;
+        sxx += punten[i].stok_op_m ** 2; sxy += punten[i].stok_op_m * punten[i].afstand;
       }
       const noemer = m * sxx - sx * sx;
       if (noemer === 0) return null;
@@ -104,32 +126,75 @@ export default function WedstrijdenPage() {
       return { helling, intercept: (sy - helling * sx) / m };
     };
 
-    // Iteratieve regressie met uitschieterverwijdering: verwijder punten met
-    // residu < -2σ (technische fouten verkorten alleen), herhaal tot stabiel.
-    let geldig = punten.map((_, i) => i);
-    let reg = regressie(geldig);
+    // Iteratieve uitschieterverwijdering: residu < -2σ (alleen naar beneden).
+    let geldigIdx = punten.map((_, i) => i);
+    let reg = regressie(geldigIdx);
     const verwijderd = new Set<number>();
     if (reg && punten.length >= 5) {
       for (let iter = 0; iter < 20; iter++) {
         const r = reg as Reg;
-        const residuen = geldig.map((i) => punten[i].afstand - (r.helling * punten[i].stok_op_m + r.intercept));
-        const gem = residuen.reduce((a, b) => a + b, 0) / residuen.length;
-        const sigma = Math.sqrt(residuen.reduce((a, b) => a + (b - gem) ** 2, 0) / residuen.length);
+        const res = geldigIdx.map((i) => punten[i].afstand - (r.helling * punten[i].stok_op_m + r.intercept));
+        const gem = res.reduce((a, b) => a + b, 0) / res.length;
+        const sigma = Math.sqrt(res.reduce((a, b) => a + (b - gem) ** 2, 0) / res.length);
         if (sigma === 0) break;
         const drempel = gem - 2 * sigma;
-        const blijft = geldig.filter((i) => punten[i].afstand - (r.helling * punten[i].stok_op_m + r.intercept) >= drempel);
-        if (blijft.length === geldig.length || blijft.length < 2) break;
-        geldig.forEach((i) => { if (!blijft.includes(i)) verwijderd.add(i); });
-        geldig = blijft;
-        reg = regressie(geldig);
+        const blijft = geldigIdx.filter((i) => punten[i].afstand - (r.helling * punten[i].stok_op_m + r.intercept) >= drempel);
+        if (blijft.length === geldigIdx.length || blijft.length < 2) break;
+        geldigIdx.forEach((i) => { if (!blijft.includes(i)) verwijderd.add(i); });
+        geldigIdx = blijft;
+        reg = regressie(geldigIdx);
       }
     }
 
-    const trend = reg
-      ? { x1: px(xMin), y1: py(reg.helling * xMin + reg.intercept), x2: px(xMax), y2: py(reg.helling * xMax + reg.intercept) }
-      : null;
+    // As-domein strak om álle punten (incl. uitschieters), met nette stappen.
+    const xs = punten.map((p) => p.stok_op_m);
+    const ys = punten.map((p) => p.afstand);
+    const asX = netteAs(Math.min(...xs), Math.max(...xs));
+    const asY = netteAs(Math.min(...ys), Math.max(...ys));
+    const px = (v: number) => PAD.l + ((v - asX.domMin) / (asX.domMax - asX.domMin)) * (W - PAD.l - PAD.r);
+    const py = (v: number) => PAD.t + (1 - (v - asY.domMin) / (asY.domMax - asY.domMin)) * (H - PAD.t - PAD.b);
 
-    return { punten, W, H, PAD, xMin, xMax, yMin, yMax, px, py, trend, verwijderd };
+    // Statistiek + betrouwbaarheidsband op de geldige sprongen (geen extrapolatie).
+    let lijn: { punten: { x: number; y: number }[]; band: string | null } | null = null;
+    let r2: number | null = null;
+    let n = geldigIdx.length;
+    if (reg && n >= 2) {
+      const gx = geldigIdx.map((i) => punten[i].stok_op_m);
+      const gy = geldigIdx.map((i) => punten[i].afstand);
+      const xGem = gx.reduce((a, b) => a + b, 0) / n;
+      const yGem = gy.reduce((a, b) => a + b, 0) / n;
+      const sxx = gx.reduce((a, b) => a + (b - xGem) ** 2, 0);
+      const sse = gy.reduce((a, y, k) => a + (y - (reg!.helling * gx[k] + reg!.intercept)) ** 2, 0);
+      const sst = gy.reduce((a, y) => a + (y - yGem) ** 2, 0);
+      r2 = sst > 0 ? Math.max(0, 1 - sse / sst) : null;
+      const xLo = Math.min(...gx), xHi = Math.max(...gx);
+      const s = n > 2 ? Math.sqrt(sse / (n - 2)) : 0;
+      const t = tWaarde(n - 2);
+      const stappen = 24;
+      const lijnPunten: { x: number; y: number }[] = [];
+      const boven: [number, number][] = [];
+      const onder: [number, number][] = [];
+      for (let k = 0; k <= stappen; k++) {
+        const x = xLo + ((xHi - xLo) * k) / stappen;
+        const yhat = reg.helling * x + reg.intercept;
+        lijnPunten.push({ x, y: yhat });
+        if (s > 0 && sxx > 0) {
+          const se = s * Math.sqrt(1 / n + (x - xGem) ** 2 / sxx);
+          boven.push([px(x), py(yhat + t * se)]);
+          onder.push([px(x), py(yhat - t * se)]);
+        }
+      }
+      let band: string | null = null;
+      if (boven.length) {
+        band =
+          `M ${boven.map(([a, b]) => `${a.toFixed(1)} ${b.toFixed(1)}`).join(" L ")}` +
+          ` L ${onder.reverse().map(([a, b]) => `${a.toFixed(1)} ${b.toFixed(1)}`).join(" L ")} Z`;
+      }
+      lijn = { punten: lijnPunten, band };
+    }
+    const zwak = n < 8 || (r2 != null && r2 < 0.3);
+
+    return { punten, W, H, PAD, asX, asY, px, py, verwijderd, lijn, r2, n, zwak, geldigIdx };
   }, [sprongen, categorie, schans, seizoen]);
 
   if (laden) {
@@ -237,7 +302,7 @@ export default function WedstrijdenPage() {
           <span className="tegel-icon"><LineChart size={16} /></span>
           <div className="wed-kop-tekst">
             <div className="wed-naam" style={{ fontSize: "1rem" }}>Stok op vs. afstand</div>
-            <span className="wed-plaats">{sprongen.length > 0 ? "sprongen met ingevulde stok op" : "nog geen stok-op ingevuld"}</span>
+            <span className="wed-plaats">verband tussen stokzetting en sprongafstand</span>
           </div>
           <ChevronDown size={18} className={`wed-chevron${grafiekOpen ? " open" : ""}`} />
         </button>
@@ -246,25 +311,27 @@ export default function WedstrijdenPage() {
             {scatter ? (
               <>
                 <svg className="ts-svg" style={{ height: "auto" }} viewBox={`0 0 ${scatter.W} ${scatter.H}`} role="img" aria-label="Stok op versus afstand">
-                  {[0, 0.25, 0.5, 0.75, 1].map((f) => {
-                    const yy = scatter.PAD.t + f * (scatter.H - scatter.PAD.t - scatter.PAD.b);
-                    const waarde = scatter.yMax - f * (scatter.yMax - scatter.yMin);
-                    return (
-                      <g key={`y${f}`}>
-                        <line className="chart-grid" x1={scatter.PAD.l} x2={scatter.W - scatter.PAD.r} y1={yy} y2={yy} />
-                        <text className="chart-tick" x={2} y={yy + 3}>{waarde.toFixed(1)}</text>
-                      </g>
-                    );
-                  })}
-                  {[0, 0.25, 0.5, 0.75, 1].map((f) => {
-                    const xx = scatter.PAD.l + f * (scatter.W - scatter.PAD.l - scatter.PAD.r);
-                    const waarde = scatter.xMin + f * (scatter.xMax - scatter.xMin);
-                    return (
-                      <text key={`x${f}`} className="chart-tick" x={xx} y={scatter.H - 24} textAnchor="middle">{waarde.toFixed(1)}</text>
-                    );
-                  })}
-                  {scatter.trend && (
-                    <line className="chart-trend" x1={scatter.trend.x1} y1={scatter.trend.y1} x2={scatter.trend.x2} y2={scatter.trend.y2} />
+                  {/* Y: nette gridlijnen + labels */}
+                  {scatter.asY.ticks.map((t) => (
+                    <g key={`y${t}`}>
+                      <line className="chart-grid" x1={scatter.PAD.l} x2={scatter.W - scatter.PAD.r} y1={scatter.py(t)} y2={scatter.py(t)} />
+                      <text className="chart-tick" x={scatter.PAD.l - 8} y={scatter.py(t) + 4} textAnchor="end">{t.toFixed(scatter.asY.decimalen)}</text>
+                    </g>
+                  ))}
+                  {/* X: nette labels (lichte gridlijnen) */}
+                  {scatter.asX.ticks.map((t) => (
+                    <g key={`x${t}`}>
+                      <line className="chart-grid" x1={scatter.px(t)} x2={scatter.px(t)} y1={scatter.PAD.t} y2={scatter.H - scatter.PAD.b} style={{ opacity: 0.3 }} />
+                      <text className="chart-tick" x={scatter.px(t)} y={scatter.H - scatter.PAD.b + 18} textAnchor="middle">{t.toFixed(scatter.asX.decimalen)}</text>
+                    </g>
+                  ))}
+                  {/* 95%-betrouwbaarheidsband + trendlijn (alleen over databereik) */}
+                  {scatter.lijn?.band && <path className="chart-band" d={scatter.lijn.band} />}
+                  {scatter.lijn && (
+                    <polyline
+                      className="chart-trend"
+                      points={scatter.lijn.punten.map((p) => `${scatter.px(p.x).toFixed(1)},${scatter.py(p.y).toFixed(1)}`).join(" ")}
+                    />
                   )}
                   {scatter.punten.map((p, i) => {
                     const cx = scatter.px(p.stok_op_m);
@@ -272,24 +339,30 @@ export default function WedstrijdenPage() {
                     if (scatter.verwijderd.has(i)) {
                       return (
                         <g key={i} className="chart-kruis">
-                          <line x1={cx - 4} y1={cy - 4} x2={cx + 4} y2={cy + 4} />
-                          <line x1={cx - 4} y1={cy + 4} x2={cx + 4} y2={cy - 4} />
+                          <line x1={cx - 5} y1={cy - 5} x2={cx + 5} y2={cy + 5} />
+                          <line x1={cx - 5} y1={cy + 5} x2={cx + 5} y2={cy - 5} />
                         </g>
                       );
                     }
-                    return <circle key={i} className="scatter-point" cx={cx} cy={cy} r={4} />;
+                    return <circle key={i} className="scatter-point" cx={cx} cy={cy} r={4.5} />;
                   })}
-                  <text className="chart-tick" x={scatter.W / 2} y={scatter.H - 6} textAnchor="middle">stok op (m)</text>
-                  <text className="chart-tick" x={-(scatter.H / 2)} y={12} textAnchor="middle" transform="rotate(-90)">afstand (m)</text>
+                  <text className="chart-astitel" x={(scatter.PAD.l + scatter.W - scatter.PAD.r) / 2} y={scatter.H - 6} textAnchor="middle">Stok op (m)</text>
+                  <text className="chart-astitel" x={-(scatter.PAD.t + scatter.H - scatter.PAD.b) / 2} y={16} textAnchor="middle" transform="rotate(-90)">Afstand (m)</text>
                 </svg>
                 <div className="chart-legenda">
                   <span><span className="legenda-stip" /> Geldige sprong</span>
                   {scatter.verwijderd.size > 0 && (
-                    <span><span className="legenda-kruis">✕</span> Mislukte sprong (buiten trend)</span>
+                    <span><span className="legenda-kruis">✕</span> Uitschieter (buiten trend)</span>
                   )}
+                  {scatter.lijn && <span><span className="legenda-lijn" /> Trend ± 95%</span>}
                 </div>
-                <p className="muted" style={{ fontSize: "0.74rem", marginTop: 6 }}>
-                  {scatter.punten.length} sprongen{scatter.verwijderd.size > 0 ? `, waarvan ${scatter.verwijderd.size} als uitschieter buiten de trend` : ""} · trendlijn op de geldige sprongen · volgt de filters
+                <p className="muted" style={{ fontSize: "0.78rem", marginTop: 8, lineHeight: 1.5 }}>
+                  Elk punt is een sprong met ingevulde stok op; hoe hoger de stok-op, hoe verder de sprong.{" "}
+                  <strong>n = {scatter.n}</strong>
+                  {scatter.r2 != null && <> · R² = {scatter.r2.toFixed(2)}</>}
+                  {scatter.verwijderd.size > 0 && <> · {scatter.verwijderd.size} uitschieter(s) weggelaten</>}
+                  {scatter.zwak && <> · <span style={{ color: "var(--error)" }}>indicatief — weinig of zwak verband</span></>}
+                  . Assen starten niet op 0 om de spreiding te tonen.
                 </p>
               </>
             ) : (
