@@ -363,6 +363,20 @@ export async function fetchPbhWindNu(plaats: string): Promise<PbhWind> {
   return parseJson<PbhWind>(response);
 }
 
+export type PbhSprongPunt = {
+  stok_op_m: number;
+  afstand: number;
+  plaats: string | null;
+  categorie: string | null;
+  datum: string | null;
+};
+
+export async function fetchPbhSprongen(): Promise<PbhSprongPunt[]> {
+  const response = await apiFetch("/pbholland/sprongen", { cache: "no-store" });
+  const data = await parseJson<{ sprongen: PbhSprongPunt[] }>(response);
+  return data.sprongen;
+}
+
 export async function fetchPbhWedstrijdDetail(idWedstrijd: number): Promise<PbhWedstrijdDetail> {
   const response = await apiFetch(`/pbholland/wedstrijd/${idWedstrijd}`, { cache: "no-store" });
   return parseJson<PbhWedstrijdDetail>(response);

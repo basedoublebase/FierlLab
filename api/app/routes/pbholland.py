@@ -339,6 +339,39 @@ def aankomend(user: CurrentUser, session: Session = Depends(get_db_session)) -> 
     return {"vandaag": vandaag, "wedstrijden": lijst}
 
 
+@router.get("/pbholland/sprongen")
+def sprongen(user: CurrentUser, session: Session = Depends(get_db_session)) -> dict:
+    """Alle sprongen met ingevulde stok op + geldige afstand (voor de scatter-grafiek)."""
+    _gekoppeld_profiel(user, session)
+    invoer = session.scalars(
+        select(SprongInvoer).where(SprongInvoer.user_id == user.id, SprongInvoer.stok_op_m.isnot(None))
+    ).all()
+    if not invoer:
+        return {"sprongen": []}
+    afstand_map = {
+        (s.id_wedstrijd, s.poging_index): s.afstand
+        for s in session.scalars(select(PbhSprong).where(PbhSprong.user_id == user.id)).all()
+    }
+    wed_map = {
+        w.id_wedstrijd: w
+        for w in session.scalars(select(PbhWedstrijd).where(PbhWedstrijd.user_id == user.id)).all()
+    }
+    out = []
+    for r in invoer:
+        afstand = afstand_map.get((r.id_wedstrijd, r.poging_index))
+        if afstand is None or afstand <= 0:
+            continue
+        w = wed_map.get(r.id_wedstrijd)
+        out.append({
+            "stok_op_m": r.stok_op_m,
+            "afstand": afstand,
+            "plaats": w.plaats if w else None,
+            "categorie": w.categorie if w else None,
+            "datum": w.datum if w else None,
+        })
+    return {"sprongen": out}
+
+
 @router.get("/pbholland/wedstrijd/{id_wedstrijd}")
 def wedstrijd_detail(
     id_wedstrijd: int, user: CurrentUser, session: Session = Depends(get_db_session)

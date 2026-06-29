@@ -2,13 +2,14 @@
 
 import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
-import { ChevronRight, MapPin, Trophy } from "lucide-react";
+import { ChevronDown, ChevronRight, LineChart, MapPin, Trophy } from "lucide-react";
 
-import { type PbhWedstrijd, fetchPbhWedstrijden } from "@/lib/api";
+import { type PbhSprongPunt, type PbhWedstrijd, fetchPbhSprongen, fetchPbhWedstrijden } from "@/lib/api";
 import { formatDatum, seizoenVan } from "@/lib/date";
 
 export default function WedstrijdenPage() {
   const [lijst, setLijst] = useState<PbhWedstrijd[]>([]);
+  const [sprongen, setSprongen] = useState<PbhSprongPunt[]>([]);
   const [laden, setLaden] = useState(true);
   const [nietGekoppeld, setNietGekoppeld] = useState(false);
   const [fout, setFout] = useState<string | null>(null);
@@ -16,12 +17,15 @@ export default function WedstrijdenPage() {
   const [categorie, setCategorie] = useState("alle");
   const [schans, setSchans] = useState("alle");
   const [seizoen, setSeizoen] = useState("alle");
+  const [grafiekOpen, setGrafiekOpen] = useState(false);
 
   useEffect(() => {
     let actief = true;
-    fetchPbhWedstrijden()
-      .then((data) => {
-        if (actief) setLijst(data.wedstrijden);
+    Promise.all([fetchPbhWedstrijden(), fetchPbhSprongen().catch(() => [])])
+      .then(([data, sp]) => {
+        if (!actief) return;
+        setLijst(data.wedstrijden);
+        setSprongen(sp);
       })
       .catch((e) => {
         if (!actief) return;
@@ -60,6 +64,29 @@ export default function WedstrijdenPage() {
       ),
     [lijst, categorie, schans, seizoen]
   );
+
+  // Scatter: stok op (x) vs afstand (y), met dezelfde filters als het overzicht.
+  const scatter = useMemo(() => {
+    const punten = sprongen.filter(
+      (s) =>
+        (categorie === "alle" || s.categorie === categorie) &&
+        (schans === "alle" || s.plaats === schans) &&
+        (seizoen === "alle" || (s.datum != null && String(seizoenVan(s.datum)) === seizoen))
+    );
+    if (punten.length === 0) return null;
+    const W = 600;
+    const H = 320;
+    const PAD = { l: 46, r: 16, t: 16, b: 40 };
+    const xs = punten.map((p) => p.stok_op_m);
+    const ys = punten.map((p) => p.afstand);
+    const xMin = Math.min(...xs), xMax = Math.max(...xs);
+    const yMin = Math.min(...ys), yMax = Math.max(...ys);
+    const xSpan = Math.max(0.5, xMax - xMin);
+    const ySpan = Math.max(0.5, yMax - yMin);
+    const px = (v: number) => PAD.l + ((v - xMin) / xSpan) * (W - PAD.l - PAD.r);
+    const py = (v: number) => PAD.t + (1 - (v - yMin) / ySpan) * (H - PAD.t - PAD.b);
+    return { punten, W, H, PAD, xMin, xMax, yMin, yMax, px, py };
+  }, [sprongen, categorie, schans, seizoen]);
 
   if (laden) {
     return (
@@ -124,6 +151,62 @@ export default function WedstrijdenPage() {
           ))}
         </select>
       </div>
+
+      {/* Uitklapbare grafiek: stok op vs afstand */}
+      <section className="card wed-kaart">
+        <button
+          type="button"
+          className="wed-kop"
+          onClick={() => setGrafiekOpen((o) => !o)}
+          aria-expanded={grafiekOpen}
+        >
+          <span className="tegel-icon"><LineChart size={16} /></span>
+          <div className="wed-kop-tekst">
+            <div className="wed-naam" style={{ fontSize: "1rem" }}>Stok op vs. afstand</div>
+            <span className="wed-plaats">{sprongen.length > 0 ? "sprongen met ingevulde stok op" : "nog geen stok-op ingevuld"}</span>
+          </div>
+          <ChevronDown size={18} className={`wed-chevron${grafiekOpen ? " open" : ""}`} />
+        </button>
+        {grafiekOpen && (
+          <div className="wed-body">
+            {scatter ? (
+              <>
+                <svg className="ts-svg" style={{ height: "auto" }} viewBox={`0 0 ${scatter.W} ${scatter.H}`} role="img" aria-label="Stok op versus afstand">
+                  {[0, 0.25, 0.5, 0.75, 1].map((f) => {
+                    const yy = scatter.PAD.t + f * (scatter.H - scatter.PAD.t - scatter.PAD.b);
+                    const waarde = scatter.yMax - f * (scatter.yMax - scatter.yMin);
+                    return (
+                      <g key={`y${f}`}>
+                        <line className="chart-grid" x1={scatter.PAD.l} x2={scatter.W - scatter.PAD.r} y1={yy} y2={yy} />
+                        <text className="chart-tick" x={2} y={yy + 3}>{waarde.toFixed(1)}</text>
+                      </g>
+                    );
+                  })}
+                  {[0, 0.25, 0.5, 0.75, 1].map((f) => {
+                    const xx = scatter.PAD.l + f * (scatter.W - scatter.PAD.l - scatter.PAD.r);
+                    const waarde = scatter.xMin + f * (scatter.xMax - scatter.xMin);
+                    return (
+                      <text key={`x${f}`} className="chart-tick" x={xx} y={scatter.H - 24} textAnchor="middle">{waarde.toFixed(1)}</text>
+                    );
+                  })}
+                  {scatter.punten.map((p, i) => (
+                    <circle key={i} className="chart-point" cx={scatter.px(p.stok_op_m)} cy={scatter.py(p.afstand)} r={4} />
+                  ))}
+                  <text className="chart-tick" x={scatter.W / 2} y={scatter.H - 6} textAnchor="middle">stok op (m)</text>
+                  <text className="chart-tick" x={-(scatter.H / 2)} y={12} textAnchor="middle" transform="rotate(-90)">afstand (m)</text>
+                </svg>
+                <p className="muted" style={{ fontSize: "0.74rem", marginTop: 6 }}>
+                  {scatter.punten.length} sprongen · alleen met ingevulde stok op · volgt de filters hierboven
+                </p>
+              </>
+            ) : (
+              <p className="chart-empty">
+                Geen sprongen met ingevulde stok op binnen dit filter. Vul stok op in bij een wedstrijd om punten te zien.
+              </p>
+            )}
+          </div>
+        )}
+      </section>
 
       {gefilterd.length === 0 ? (
         <div className="tegel-empty">
