@@ -523,15 +523,19 @@ def haal_wedstrijd_detail(id_wedstrijd: int, id_persoon: int) -> dict:
         return cached[0]
 
     pagina = _haal(f"{BASE}/uitslaginfo/?id_wedstrijd={id_wedstrijd}")
-    pos = pagina.find(f"id_persoon={id_persoon}")
-    if pos == -1:
+    # De pagina bevat vaak meerdere tabellen die de springer noemen: een korte
+    # categorie-samenvatting (type/naam/verste) én de volledige uitslagrij met de
+    # losse pogingen. Kies de rij met de meeste cellen — dat is de uitslagrij.
+    cel_htmls: list[str] = []
+    for rij in re.findall(r"<tr[^>]*>(.*?)</tr>", pagina, re.S):
+        if f"id_persoon={id_persoon}" not in rij:
+            continue
+        kandidaat = re.findall(r"<td[^>]*>(.*?)</td>", rij, re.S)
+        if len(kandidaat) > len(cel_htmls):
+            cel_htmls = kandidaat
+    if not cel_htmls:
         raise KeyError("Springer niet in deze uitslag gevonden.")
-    rstart = pagina.rfind("<tr", 0, pos)
-    rend = pagina.find("</tr>", pos)
-    rij = pagina[rstart:rend]
 
-    # Cellen mét hun eventuele meetgegevens-link.
-    cel_htmls = re.findall(r"<td[^>]*>(.*?)</td>", rij, re.S)
     cellen = [_strip(c) for c in cel_htmls]
     positie = cellen[0] if cellen else None
     # Cel 0=positie, 1=naam, 2=type, 3=verste, 4+=pogingen.

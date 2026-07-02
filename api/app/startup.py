@@ -134,6 +134,27 @@ def _repair_pbh_cache(bestaande_tabellen: set[str]) -> None:
         conn.execute(text("INSERT INTO pbh_migratie (sleutel) VALUES ('reset_scope_v1')"))
 
 
+def _forceer_detail_herophaling(bestaande_tabellen: set[str]) -> None:
+    """Eenmalige reset na de uitslaginfo-parserfix.
+
+    De parser koos eerder de korte samenvattingsrij i.p.v. de volledige uitslagrij,
+    waardoor sommige wedstrijden zonder losse pogingen (of via de terugval alleen met
+    afstanden) waren opgeslagen. detail_fetched_at op NULL zetten forceert één
+    herophaling per wedstrijd zodra je die opent, nu met de gecorrigeerde parser.
+    """
+    if "pbh_wedstrijd" not in bestaande_tabellen:
+        return
+    with engine.begin() as conn:
+        conn.execute(text("CREATE TABLE IF NOT EXISTS pbh_migratie (sleutel VARCHAR(64) PRIMARY KEY)"))
+        gedaan = conn.execute(
+            text("SELECT 1 FROM pbh_migratie WHERE sleutel = 'reparse_uitslaginfo_v1'")
+        ).first()
+        if gedaan is not None:
+            return
+        conn.execute(text("UPDATE pbh_wedstrijd SET detail_fetched_at = NULL"))
+        conn.execute(text("INSERT INTO pbh_migratie (sleutel) VALUES ('reparse_uitslaginfo_v1')"))
+
+
 def _migreer_constraints(inspector, bestaande_tabellen: set[str]) -> None:
     # Constraint-DDL is alleen op Postgres (productie) portabel. Op een verse
     # SQLite-dev-DB maakt create_all de nieuwe constraints al; een bestaande
@@ -173,6 +194,7 @@ async def lifespan(_: FastAPI):
     bestaande_tabellen = set(inspector.get_table_names())
     _ensure_columns(inspector, bestaande_tabellen)
     _repair_pbh_cache(bestaande_tabellen)
+    _forceer_detail_herophaling(bestaande_tabellen)
     _backfill(bestaande_tabellen)
     # Inspector opnieuw ophalen: de kolommen zijn zojuist toegevoegd.
     _migreer_constraints(inspect(engine), bestaande_tabellen)
