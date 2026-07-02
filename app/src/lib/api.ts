@@ -270,6 +270,22 @@ export type PbhStatistieken = {
 const PBH_TTL_MS = 300_000;
 let pbhStatistiekenCache: CacheEntry<PbhStatistieken> | null = null;
 
+export type GekoppeldProfiel = {
+  id_persoon: number;
+  naam: string;
+  vereniging: string | null;
+  pr_overall: number | null;
+  aantal_wedstrijden: number;
+};
+
+export async function fetchGekoppeldeProfielen(): Promise<{
+  actief_id: number | null;
+  profielen: GekoppeldProfiel[];
+}> {
+  const response = await apiFetch("/pbholland/gekoppelde-profielen", { cache: "no-store" });
+  return parseJson(response);
+}
+
 export async function fetchPbhStatistieken(): Promise<PbhStatistieken> {
   if (pbhStatistiekenCache && Date.now() - pbhStatistiekenCache.ts < PBH_TTL_MS) {
     return pbhStatistiekenCache.data;
@@ -356,6 +372,14 @@ export async function fetchPbhAankomend(): Promise<{ vandaag: string; wedstrijde
   const data = await parseJson<{ vandaag: string; wedstrijden: PbhAankomend[] }>(response);
   pbhAankomendCache = { data, ts: Date.now() };
   return data;
+}
+
+// Bij het (ont)koppelen of wisselen van pbholland-profiel: alle pbholland-caches
+// leegmaken zodat de nieuwe persoon direct zijn eigen data toont.
+export function invalidatePbhCaches(): void {
+  pbhStatistiekenCache = null;
+  pbhWedstrijdenCache = null;
+  pbhAankomendCache = null;
 }
 
 export async function fetchPbhWindNu(plaats: string): Promise<PbhWind> {

@@ -9,13 +9,18 @@ from app.db import Base
 
 
 class PbhWedstrijd(Base):
-    """Permanent opgeslagen pbholland-wedstrijd (per gebruiker, per id_wedstrijd)."""
+    """Permanent opgeslagen pbholland-wedstrijd, per gebruiker én per gekoppeld
+    pbholland-profiel (id_persoon). Zo blijft de data van een profiel bewaard als
+    je overschakelt naar een ander profiel en later terug wisselt."""
 
     __tablename__ = "pbh_wedstrijd"
-    __table_args__ = (UniqueConstraint("user_id", "id_wedstrijd", name="uq_pbh_wedstrijd"),)
+    __table_args__ = (
+        UniqueConstraint("user_id", "pbholland_id", "id_wedstrijd", name="uq_pbh_wedstrijd_p"),
+    )
 
     id: Mapped[int] = mapped_column(primary_key=True)
     user_id: Mapped[int] = mapped_column(ForeignKey("users.id"), index=True)
+    pbholland_id: Mapped[int] = mapped_column(Integer, index=True)
     id_wedstrijd: Mapped[int] = mapped_column(Integer, index=True)
     datum: Mapped[str] = mapped_column(String(10))  # ISO YYYY-MM-DD
     plaats: Mapped[str] = mapped_column(String(80), default="")
@@ -33,12 +38,18 @@ class PbhWedstrijd(Base):
 
 
 class PbhProfiel(Base):
-    """Permanent opgeslagen pbholland-profielvelden (per gebruiker), voor Statistieken."""
+    """Permanent opgeslagen pbholland-profielvelden, per gebruiker én per gekoppeld
+    profiel (id_persoon), voor Statistieken. Bevat ook het per-profiel verversbeleid
+    (wanneer de lijst/klassement voor dít profiel voor het laatst zijn opgehaald)."""
 
     __tablename__ = "pbh_profiel"
+    __table_args__ = (UniqueConstraint("user_id", "pbholland_id", name="uq_pbh_profiel_p"),)
 
     id: Mapped[int] = mapped_column(primary_key=True)
-    user_id: Mapped[int] = mapped_column(ForeignKey("users.id"), unique=True, index=True)
+    user_id: Mapped[int] = mapped_column(ForeignKey("users.id"), index=True)
+    pbholland_id: Mapped[int] = mapped_column(Integer, index=True)
+    lijst_fetched_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    klassement_fetched_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
     naam: Mapped[str] = mapped_column(String(120), default="")
     bond: Mapped[str | None] = mapped_column(String(20), nullable=True)
     vereniging: Mapped[str | None] = mapped_column(String(80), nullable=True)
@@ -58,10 +69,13 @@ class PbhKlassement(Base):
     """Klassement per seizoen (per gebruiker): positie + totaalscore."""
 
     __tablename__ = "pbh_klassement"
-    __table_args__ = (UniqueConstraint("user_id", "jaar", name="uq_pbh_klassement"),)
+    __table_args__ = (
+        UniqueConstraint("user_id", "pbholland_id", "jaar", name="uq_pbh_klassement_p"),
+    )
 
     id: Mapped[int] = mapped_column(primary_key=True)
     user_id: Mapped[int] = mapped_column(ForeignKey("users.id"), index=True)
+    pbholland_id: Mapped[int] = mapped_column(Integer, index=True)
     jaar: Mapped[int] = mapped_column(Integer)
     positie: Mapped[int | None] = mapped_column(Integer, nullable=True)
     totaal: Mapped[float | None] = mapped_column(Float, nullable=True)
@@ -71,10 +85,15 @@ class PbhSprong(Base):
     """Permanent opgeslagen pbholland-sprong (per gebruiker, per wedstrijd + poging)."""
 
     __tablename__ = "pbh_sprong"
-    __table_args__ = (UniqueConstraint("user_id", "id_wedstrijd", "poging_index", name="uq_pbh_sprong"),)
+    __table_args__ = (
+        UniqueConstraint(
+            "user_id", "pbholland_id", "id_wedstrijd", "poging_index", name="uq_pbh_sprong_p"
+        ),
+    )
 
     id: Mapped[int] = mapped_column(primary_key=True)
     user_id: Mapped[int] = mapped_column(ForeignKey("users.id"), index=True)
+    pbholland_id: Mapped[int] = mapped_column(Integer, index=True)
     id_wedstrijd: Mapped[int] = mapped_column(Integer, index=True)
     poging_index: Mapped[int] = mapped_column(Integer)
     label: Mapped[str] = mapped_column(String(20), default="")

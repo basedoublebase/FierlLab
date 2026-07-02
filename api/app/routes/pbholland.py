@@ -6,7 +6,7 @@ from zoneinfo import ZoneInfo
 import httpx
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from app.auth import CurrentUser
@@ -38,10 +38,14 @@ def _is_recent(datum_iso: str) -> bool:
     return d >= date.today() - timedelta(days=_RECENT_DAGEN)
 
 
-def _upsert_lijst(session: Session, user_id: int, wedstrijden: list[dict], nu: datetime) -> None:
+def _upsert_lijst(session: Session, user_id: int, pid: int, wedstrijden: list[dict], nu: datetime) -> None:
     bestaand = {
         r.id_wedstrijd: r
-        for r in session.scalars(select(PbhWedstrijd).where(PbhWedstrijd.user_id == user_id)).all()
+        for r in session.scalars(
+            select(PbhWedstrijd).where(
+                PbhWedstrijd.user_id == user_id, PbhWedstrijd.pbholland_id == pid
+            )
+        ).all()
     }
     for w in wedstrijden:
         wid = w.get("id_wedstrijd")
@@ -49,7 +53,7 @@ def _upsert_lijst(session: Session, user_id: int, wedstrijden: list[dict], nu: d
             continue  # niet-navigeerbare wedstrijd: niet persistent opslaan
         rij = bestaand.get(wid)
         if rij is None:
-            rij = PbhWedstrijd(user_id=user_id, id_wedstrijd=wid)
+            rij = PbhWedstrijd(user_id=user_id, pbholland_id=pid, id_wedstrijd=wid)
             session.add(rij)
         rij.datum = w["datum"]
         rij.plaats = w["plaats"] or ""
@@ -62,10 +66,12 @@ def _upsert_lijst(session: Session, user_id: int, wedstrijden: list[dict], nu: d
         rij.fetched_at = nu
 
 
-def _upsert_profiel(session: Session, user_id: int, prof: dict) -> None:
-    rij = session.scalars(select(PbhProfiel).where(PbhProfiel.user_id == user_id)).first()
+def _upsert_profiel(session: Session, user_id: int, pid: int, prof: dict) -> PbhProfiel:
+    rij = session.scalars(
+        select(PbhProfiel).where(PbhProfiel.user_id == user_id, PbhProfiel.pbholland_id == pid)
+    ).first()
     if rij is None:
-        rij = PbhProfiel(user_id=user_id)
+        rij = PbhProfiel(user_id=user_id, pbholland_id=pid)
         session.add(rij)
     rij.naam = prof.get("naam") or ""
     rij.bond = prof.get("bond")
@@ -80,54 +86,66 @@ def _upsert_profiel(session: Session, user_id: int, prof: dict) -> None:
     rij.pr_overall = prof.get("pr_overall")
     rij.aantal_wedstrijden = int(prof["aantal_wedstrijden"]) if prof.get("aantal_wedstrijden") else None
     rij.aantal_sprongen = int(prof["aantal_sprongen"]) if prof.get("aantal_sprongen") else None
+    return rij
 
 
 def _zorg_lijst_vers(session: Session, user_id: int, profiel: Profiel, nu: datetime) -> bool:
-    """Ververs de wedstrijdenlijst + profiel in de DB indien verouderd.
+    """Ververs de wedstrijdenlijst + profiel voor het actieve pbholland-profiel indien verouderd.
 
+    Het verversbeleid staat per gekoppeld profiel op de PbhProfiel-rij, zodat het
+    wisselen tussen profielen niet steeds een nieuwe scrape forceert.
     Geeft True als er bruikbare data in de DB staat. Scrape-fout met lege DB → 503.
     """
+    pid = profiel.pbholland_id
+    pp = session.scalars(
+        select(PbhProfiel).where(PbhProfiel.user_id == user_id, PbhProfiel.pbholland_id == pid)
+    ).first()
     heeft_rijen = (
-        session.scalars(select(PbhWedstrijd.id).where(PbhWedstrijd.user_id == user_id).limit(1)).first()
-        is not None
-    )
-    heeft_profiel = (
-        session.scalars(select(PbhProfiel.id).where(PbhProfiel.user_id == user_id).limit(1)).first()
+        session.scalars(
+            select(PbhWedstrijd.id)
+            .where(PbhWedstrijd.user_id == user_id, PbhWedstrijd.pbholland_id == pid)
+            .limit(1)
+        ).first()
         is not None
     )
     stale = (
-        profiel.pbholland_lijst_fetched_at is None
-        or (nu - profiel.pbholland_lijst_fetched_at) > _LIJST_TTL
-        or not heeft_profiel  # nieuw veld nog niet gevuld → forceer één verversing
-        or profiel.pbholland_klassement_fetched_at is None  # klassement nog nooit opgehaald
+        pp is None
+        or pp.lijst_fetched_at is None
+        or (nu - pp.lijst_fetched_at) > _LIJST_TTL
+        or pp.klassement_fetched_at is None  # klassement voor dit profiel nog nooit opgehaald
     )
     if stale:
         try:
-            data = pbholland.haal_wedstrijden(profiel.pbholland_id, profiel.naam or None)
+            data = pbholland.haal_wedstrijden(pid, profiel.naam or None)
         except httpx.HTTPError:
             return heeft_rijen
-        _upsert_lijst(session, user_id, data["wedstrijden"], nu)
-        _upsert_profiel(session, user_id, data["profiel"])
-        _upsert_klassement(session, user_id, profiel.pbholland_id, profiel.naam or None)
-        profiel.pbholland_lijst_fetched_at = nu
-        profiel.pbholland_klassement_fetched_at = nu
+        _upsert_lijst(session, user_id, pid, data["wedstrijden"], nu)
+        pp = _upsert_profiel(session, user_id, pid, data["profiel"])
+        _upsert_klassement(session, user_id, pid, profiel.naam or None)
+        pp.lijst_fetched_at = nu
+        pp.klassement_fetched_at = nu
         session.commit()
         return True
     return heeft_rijen
 
 
-def _upsert_klassement(session: Session, user_id: int, id_persoon: int, naam: str | None) -> None:
+def _upsert_klassement(session: Session, user_id: int, pid: int, naam: str | None) -> None:
     try:
-        rijen = pbholland.haal_klassement(id_persoon, naam)
+        rijen = pbholland.haal_klassement(pid, naam)
     except httpx.HTTPError:
         return  # klassement is bijzaak; lijst-verversing niet laten falen
     bestaand = {
-        r.jaar: r for r in session.scalars(select(PbhKlassement).where(PbhKlassement.user_id == user_id)).all()
+        r.jaar: r
+        for r in session.scalars(
+            select(PbhKlassement).where(
+                PbhKlassement.user_id == user_id, PbhKlassement.pbholland_id == pid
+            )
+        ).all()
     }
     for k in rijen:
         rij = bestaand.get(k["jaar"])
         if rij is None:
-            rij = PbhKlassement(user_id=user_id, jaar=k["jaar"])
+            rij = PbhKlassement(user_id=user_id, pbholland_id=pid, jaar=k["jaar"])
             session.add(rij)
         rij.positie = k["positie"]
         rij.totaal = k["totaal"]
@@ -155,6 +173,38 @@ def preview(
     return stats
 
 
+@router.get("/pbholland/gekoppelde-profielen")
+def gekoppelde_profielen(user: CurrentUser, session: Session = Depends(get_db_session)) -> dict:
+    """Profielen waarvan al eens data is opgehaald (voor snel terugwisselen).
+
+    Toont ook welk profiel nu actief gekoppeld is, zodat de UI dat kan markeren.
+    """
+    profiel = session.scalars(select(Profiel).where(Profiel.user_id == user.id)).first()
+    rijen = session.scalars(select(PbhProfiel).where(PbhProfiel.user_id == user.id)).all()
+    aantallen = {
+        pid: n
+        for pid, n in session.execute(
+            select(PbhWedstrijd.pbholland_id, func.count(PbhWedstrijd.id))
+            .where(PbhWedstrijd.user_id == user.id)
+            .group_by(PbhWedstrijd.pbholland_id)
+        ).all()
+    }
+    profielen = [
+        {
+            "id_persoon": pp.pbholland_id,
+            "naam": pp.naam,
+            "vereniging": pp.vereniging,
+            "pr_overall": pp.pr_overall,
+            "aantal_wedstrijden": aantallen.get(pp.pbholland_id, 0),
+        }
+        for pp in sorted(rijen, key=lambda r: r.naam.lower())
+    ]
+    return {
+        "actief_id": profiel.pbholland_id if profiel else None,
+        "profielen": profielen,
+    }
+
+
 def _gekoppeld_profiel(user, session: Session) -> Profiel:
     profiel = session.scalars(select(Profiel).where(Profiel.user_id == user.id)).first()
     if profiel is None or not profiel.pbholland_id:
@@ -172,11 +222,16 @@ def statistieken(
 ) -> dict:
     """Statistieken — afgeleid uit de opgeslagen wedstrijden + profiel (geen scrape op warm)."""
     profiel = _gekoppeld_profiel(user, session)
+    pid = profiel.pbholland_id
     if not _zorg_lijst_vers(session, user.id, profiel, _now()):
         raise HTTPException(status_code=503, detail="pbholland.com is tijdelijk niet bereikbaar.")
 
-    rijen = session.scalars(select(PbhWedstrijd).where(PbhWedstrijd.user_id == user.id)).all()
-    pp = session.scalars(select(PbhProfiel).where(PbhProfiel.user_id == user.id)).first()
+    rijen = session.scalars(
+        select(PbhWedstrijd).where(PbhWedstrijd.user_id == user.id, PbhWedstrijd.pbholland_id == pid)
+    ).all()
+    pp = session.scalars(
+        select(PbhProfiel).where(PbhProfiel.user_id == user.id, PbhProfiel.pbholland_id == pid)
+    ).first()
 
     geldige = [r for r in rijen if (r.verste_afstand or 0) > 0]
 
@@ -223,7 +278,9 @@ def statistieken(
     gem_uitslag = round(sum(r.verste_afstand for r in geldige) / len(geldige), 2) if geldige else None
 
     # Gem. afwijking uit de opgeslagen losse sprongen (waar beschikbaar).
-    sprongen = session.scalars(select(PbhSprong).where(PbhSprong.user_id == user.id)).all()
+    sprongen = session.scalars(
+        select(PbhSprong).where(PbhSprong.user_id == user.id, PbhSprong.pbholland_id == pid)
+    ).all()
     per_wed: dict[int, list[float]] = {}
     for s in sprongen:
         if s.afstand and s.afstand > 0:
@@ -235,7 +292,9 @@ def statistieken(
     gem_afwijking = round(sum(afwijkingen) / len(afwijkingen), 2) if afwijkingen else None
 
     klassement = session.scalars(
-        select(PbhKlassement).where(PbhKlassement.user_id == user.id).order_by(PbhKlassement.jaar)
+        select(PbhKlassement)
+        .where(PbhKlassement.user_id == user.id, PbhKlassement.pbholland_id == pid)
+        .order_by(PbhKlassement.jaar)
     ).all()
     klassement_per_seizoen = [
         {"jaar": k.jaar, "positie": k.positie, "totaal": k.totaal} for k in klassement
@@ -271,12 +330,13 @@ def statistieken(
 def wedstrijden(user: CurrentUser, session: Session = Depends(get_db_session)) -> dict:
     """Wedstrijdenlijst — uit de database, max 1×/dag opnieuw gescrapet."""
     profiel = _gekoppeld_profiel(user, session)
+    pid = profiel.pbholland_id
     if not _zorg_lijst_vers(session, user.id, profiel, _now()):
         raise HTTPException(status_code=503, detail="pbholland.com is tijdelijk niet bereikbaar.")
 
     rijen = session.scalars(
         select(PbhWedstrijd)
-        .where(PbhWedstrijd.user_id == user.id)
+        .where(PbhWedstrijd.user_id == user.id, PbhWedstrijd.pbholland_id == pid)
         .order_by(PbhWedstrijd.datum.desc(), PbhWedstrijd.id_wedstrijd.desc())
     ).all()
     return {
@@ -342,19 +402,28 @@ def aankomend(user: CurrentUser, session: Session = Depends(get_db_session)) -> 
 @router.get("/pbholland/sprongen")
 def sprongen(user: CurrentUser, session: Session = Depends(get_db_session)) -> dict:
     """Alle sprongen met ingevulde stok op + geldige afstand (voor de scatter-grafiek)."""
-    _gekoppeld_profiel(user, session)
+    profiel = _gekoppeld_profiel(user, session)
+    pid = profiel.pbholland_id
     invoer = session.scalars(
-        select(SprongInvoer).where(SprongInvoer.user_id == user.id, SprongInvoer.stok_op_m.isnot(None))
+        select(SprongInvoer).where(
+            SprongInvoer.user_id == user.id,
+            SprongInvoer.pbholland_id == pid,
+            SprongInvoer.stok_op_m.isnot(None),
+        )
     ).all()
     if not invoer:
         return {"sprongen": []}
     afstand_map = {
         (s.id_wedstrijd, s.poging_index): s.afstand
-        for s in session.scalars(select(PbhSprong).where(PbhSprong.user_id == user.id)).all()
+        for s in session.scalars(
+            select(PbhSprong).where(PbhSprong.user_id == user.id, PbhSprong.pbholland_id == pid)
+        ).all()
     }
     wed_map = {
         w.id_wedstrijd: w
-        for w in session.scalars(select(PbhWedstrijd).where(PbhWedstrijd.user_id == user.id)).all()
+        for w in session.scalars(
+            select(PbhWedstrijd).where(PbhWedstrijd.user_id == user.id, PbhWedstrijd.pbholland_id == pid)
+        ).all()
     }
     out = []
     for r in invoer:
@@ -378,9 +447,14 @@ def wedstrijd_detail(
 ) -> dict:
     """Sprongtabel van één wedstrijd — uit de database; recente wedstrijden ~12u ververst."""
     profiel = _gekoppeld_profiel(user, session)
+    pid = profiel.pbholland_id
     nu = _now()
     wed = session.scalars(
-        select(PbhWedstrijd).where(PbhWedstrijd.user_id == user.id, PbhWedstrijd.id_wedstrijd == id_wedstrijd)
+        select(PbhWedstrijd).where(
+            PbhWedstrijd.user_id == user.id,
+            PbhWedstrijd.pbholland_id == pid,
+            PbhWedstrijd.id_wedstrijd == id_wedstrijd,
+        )
     ).first()
 
     nodig = (
@@ -400,7 +474,10 @@ def wedstrijd_detail(
         else:
             meta = next((w for w in lijst["wedstrijden"] if w["id_wedstrijd"] == id_wedstrijd), None)
             if wed is None:
-                wed = PbhWedstrijd(user_id=user.id, id_wedstrijd=id_wedstrijd, datum=(meta["datum"] if meta else ""))
+                wed = PbhWedstrijd(
+                    user_id=user.id, pbholland_id=pid, id_wedstrijd=id_wedstrijd,
+                    datum=(meta["datum"] if meta else ""),
+                )
                 session.add(wed)
             if meta:
                 wed.datum = meta["datum"]; wed.plaats = meta["plaats"] or ""
@@ -413,13 +490,17 @@ def wedstrijd_detail(
             wed.detail_fetched_at = nu
             # Sprongen vervangen.
             for oud in session.scalars(
-                select(PbhSprong).where(PbhSprong.user_id == user.id, PbhSprong.id_wedstrijd == id_wedstrijd)
+                select(PbhSprong).where(
+                    PbhSprong.user_id == user.id,
+                    PbhSprong.pbholland_id == pid,
+                    PbhSprong.id_wedstrijd == id_wedstrijd,
+                )
             ).all():
                 session.delete(oud)
             session.flush()
             for i, p in enumerate(detail["pogingen"]):
                 session.add(PbhSprong(
-                    user_id=user.id, id_wedstrijd=id_wedstrijd, poging_index=i,
+                    user_id=user.id, pbholland_id=pid, id_wedstrijd=id_wedstrijd, poging_index=i,
                     label=p["label"], afstand=p["afstand"], geldig=p["geldig"],
                     id_meetgegevens=p["id_meetgegevens"], tijd=p["tijd"],
                     tijd_schatting=p["tijd_schatting"], afwijking=p["afwijking"],
@@ -432,13 +513,21 @@ def wedstrijd_detail(
 
     sprongen = session.scalars(
         select(PbhSprong)
-        .where(PbhSprong.user_id == user.id, PbhSprong.id_wedstrijd == id_wedstrijd)
+        .where(
+            PbhSprong.user_id == user.id,
+            PbhSprong.pbholland_id == pid,
+            PbhSprong.id_wedstrijd == id_wedstrijd,
+        )
         .order_by(PbhSprong.poging_index)
     ).all()
     stok = {
         r.poging_index: r
         for r in session.scalars(
-            select(SprongInvoer).where(SprongInvoer.user_id == user.id, SprongInvoer.id_wedstrijd == id_wedstrijd)
+            select(SprongInvoer).where(
+                SprongInvoer.user_id == user.id,
+                SprongInvoer.pbholland_id == pid,
+                SprongInvoer.id_wedstrijd == id_wedstrijd,
+            )
         ).all()
     }
     # Slot-keys per sprong + al-gecachte wind in één query ophalen (geen N losse hops).
@@ -499,15 +588,20 @@ def zet_stok_invoer(
     session: Session = Depends(get_db_session),
 ) -> dict:
     """Sla eigen stok op / stok uit hand op bij een pbholland-sprong."""
+    profiel = _gekoppeld_profiel(user, session)
+    pid = profiel.pbholland_id
     rij = session.scalars(
         select(SprongInvoer).where(
             SprongInvoer.user_id == user.id,
+            SprongInvoer.pbholland_id == pid,
             SprongInvoer.id_wedstrijd == id_wedstrijd,
             SprongInvoer.poging_index == poging_index,
         )
     ).first()
     if rij is None:
-        rij = SprongInvoer(user_id=user.id, id_wedstrijd=id_wedstrijd, poging_index=poging_index)
+        rij = SprongInvoer(
+            user_id=user.id, pbholland_id=pid, id_wedstrijd=id_wedstrijd, poging_index=poging_index
+        )
         session.add(rij)
     rij.stok_op_m = payload.stok_op_m
     rij.stok_uit_hand_m = payload.stok_uit_hand_m

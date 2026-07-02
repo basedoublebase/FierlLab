@@ -2,16 +2,19 @@
 
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
-import { Link2, LogOut, MapPin, Pencil, Plus, Search, Trash2, X } from "lucide-react";
+import { Link2, LogOut, MapPin, Pencil, Plus, RefreshCw, Search, Trash2, X } from "lucide-react";
 
 import {
+  type GekoppeldProfiel,
   type PbhStatistieken,
   type Profiel,
   type Schans,
   createSchans,
   deleteSchans,
+  fetchGekoppeldeProfielen,
   fetchProfiel,
   fetchSchansen,
+  invalidatePbhCaches,
   previewPbhProfiel,
   updateProfiel,
   updateSchans,
@@ -90,14 +93,26 @@ export default function InstellingenPage() {
   const [pbhPreview, setPbhPreview] = useState<PbhStatistieken | null>(null);
   const [pbhBezig, setPbhBezig] = useState(false);
   const [pbhFout, setPbhFout] = useState<string | null>(null);
+  const [gekoppeld, setGekoppeld] = useState<GekoppeldProfiel[]>([]);
+  const [toonNieuw, setToonNieuw] = useState(false);
+
+  async function laadGekoppelde() {
+    try {
+      const data = await fetchGekoppeldeProfielen();
+      setGekoppeld(data.profielen);
+    } catch {
+      // niet kritisch: de snelwissel-lijst is optioneel
+    }
+  }
 
   useEffect(() => {
     let actief = true;
-    Promise.all([fetchProfiel(), fetchSchansen()])
-      .then(([p, s]) => {
+    Promise.all([fetchProfiel(), fetchSchansen(), fetchGekoppeldeProfielen()])
+      .then(([p, s, g]) => {
         if (!actief) return;
         setProfiel(p);
         setSchansen(s);
+        setGekoppeld(g.profielen);
         setNaam(p.naam);
         setGeboortejaar(p.geboortejaar?.toString() ?? "");
         setMassa(p.massa_kg.toString());
@@ -168,13 +183,36 @@ export default function InstellingenPage() {
         pbholland_id: pbhPreview.id_persoon,
         naam: pbhPreview.naam,
       });
+      invalidatePbhCaches();
       setProfiel(bijgewerkt);
       setNaam(bijgewerkt.naam);
       setPbhInvoer("");
       setPbhPreview(null);
+      setToonNieuw(false);
+      await laadGekoppelde();
       setMelding(`pbholland-profiel gekoppeld: ${bijgewerkt.naam}.`);
     } catch (e) {
       setPbhFout(e instanceof Error ? e.message : "Koppelen mislukt.");
+    } finally {
+      setPbhBezig(false);
+    }
+  }
+
+  // Terugwisselen naar een eerder gekoppeld profiel: de opgeslagen data van dat
+  // profiel is nog aanwezig en verschijnt direct weer.
+  async function wisselProfiel(doel: GekoppeldProfiel) {
+    setPbhBezig(true);
+    setPbhFout(null);
+    setMelding(null);
+    try {
+      const bijgewerkt = await updateProfiel({ pbholland_id: doel.id_persoon, naam: doel.naam });
+      invalidatePbhCaches();
+      setProfiel(bijgewerkt);
+      setNaam(bijgewerkt.naam);
+      await laadGekoppelde();
+      setMelding(`Gewisseld naar ${bijgewerkt.naam}.`);
+    } catch (e) {
+      setPbhFout(e instanceof Error ? e.message : "Wisselen mislukt.");
     } finally {
       setPbhBezig(false);
     }
@@ -185,8 +223,9 @@ export default function InstellingenPage() {
     setPbhFout(null);
     try {
       const bijgewerkt = await updateProfiel({ pbholland_id: null });
+      invalidatePbhCaches();
       setProfiel(bijgewerkt);
-      setMelding("pbholland-profiel ontkoppeld.");
+      setMelding("pbholland-profiel ontkoppeld. De opgeslagen data blijft bewaard.");
     } catch (e) {
       setPbhFout(e instanceof Error ? e.message : "Ontkoppelen mislukt.");
     } finally {
@@ -294,16 +333,63 @@ export default function InstellingenPage() {
               Ontkoppelen
             </button>
           </div>
+        ) : null}
+
+        {/* Eerder gekoppelde profielen — één klik terugwisselen, data blijft bewaard. */}
+        {gekoppeld.filter((g) => g.id_persoon !== profiel?.pbholland_id).length > 0 && (
+          <div className="rij-lijst" style={{ marginTop: profiel?.pbholland_id ? 16 : 0 }}>
+            <span className="field-label">Eerder gekoppelde profielen</span>
+            {gekoppeld
+              .filter((g) => g.id_persoon !== profiel?.pbholland_id)
+              .map((g) => (
+                <div key={g.id_persoon} className="rij">
+                  <span className="rij-icoon">
+                    <RefreshCw size={15} />
+                  </span>
+                  <div className="rij-content">
+                    <div className="rij-naam">{g.naam || `id ${g.id_persoon}`}</div>
+                    <div className="rij-sub">
+                      {[
+                        g.vereniging,
+                        g.pr_overall ? `PR ${g.pr_overall.toFixed(2)} m` : null,
+                        `${g.aantal_wedstrijden} wedstrijden`,
+                      ]
+                        .filter(Boolean)
+                        .join(" · ")}
+                    </div>
+                  </div>
+                  <div className="rij-acties">
+                    <button
+                      type="button"
+                      className="secondary-button"
+                      onClick={() => wisselProfiel(g)}
+                      disabled={pbhBezig}
+                    >
+                      Wissel
+                    </button>
+                  </div>
+                </div>
+              ))}
+          </div>
+        )}
+
+        {/* Nieuw profiel koppelen: ingeklapt zolang er al één gekoppeld is. */}
+        {profiel?.pbholland_id && !toonNieuw ? (
+          <div className="detail-actions">
+            <button type="button" className="secondary-button" onClick={() => setToonNieuw(true)}>
+              <Plus size={16} style={{ verticalAlign: "-3px" }} /> Ander profiel koppelen
+            </button>
+          </div>
         ) : (
-          <div className="field-list">
+          <div className="field-list" style={{ marginTop: profiel?.pbholland_id ? 16 : 0 }}>
             <label className="field">
               <span className="field-label">Profiel-URL of id_persoon</span>
               <p className="field-help">
-                Zoek jezelf op{" "}
+                Zoek een springer op{" "}
                 <a href="https://pbholland.com" target="_blank" rel="noreferrer" style={{ color: "var(--accent)" }}>
                   pbholland.com
                 </a>{" "}
-                en plak de URL van je persoonlijke pagina hieronder.
+                en plak de URL van de persoonlijke pagina hieronder.
               </p>
               <div className="new-var-name-row">
                 <input
@@ -338,6 +424,20 @@ export default function InstellingenPage() {
                   <button type="button" className="primary-button" onClick={koppelPbhProfiel} disabled={pbhBezig}>
                     <Link2 size={16} style={{ verticalAlign: "-3px" }} /> Dit ben ik — koppelen
                   </button>
+                  {profiel?.pbholland_id && (
+                    <button
+                      type="button"
+                      className="secondary-button"
+                      onClick={() => {
+                        setToonNieuw(false);
+                        setPbhPreview(null);
+                        setPbhInvoer("");
+                        setPbhFout(null);
+                      }}
+                    >
+                      Annuleren
+                    </button>
+                  )}
                 </div>
               </div>
             )}

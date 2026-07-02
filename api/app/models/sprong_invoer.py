@@ -13,10 +13,15 @@ class SprongInvoer(Base):
     """
 
     __tablename__ = "sprong_invoer"
-    __table_args__ = (UniqueConstraint("user_id", "id_wedstrijd", "poging_index", name="uq_sprong_invoer"),)
+    __table_args__ = (
+        UniqueConstraint(
+            "user_id", "pbholland_id", "id_wedstrijd", "poging_index", name="uq_sprong_invoer_p"
+        ),
+    )
 
     id: Mapped[int] = mapped_column(primary_key=True)
     user_id: Mapped[int] = mapped_column(ForeignKey("users.id"), index=True)
+    pbholland_id: Mapped[int] = mapped_column(Integer, index=True)
     id_wedstrijd: Mapped[int] = mapped_column(Integer, index=True)
     poging_index: Mapped[int] = mapped_column(Integer)
     stok_op_m: Mapped[float | None] = mapped_column(Float, nullable=True)
