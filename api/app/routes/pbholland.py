@@ -206,17 +206,20 @@ def gekoppelde_profielen(user: CurrentUser, session: Session = Depends(get_db_se
 
 
 def _reclaim_invoer(session: Session, user_id: int, pid: int) -> None:
-    """Verweesde eigen invoer (stok op / uit hand) terugclaimen voor het actieve profiel.
+    """Historische, mogelijk verkeerd gelabelde stok-invoer toewijzen aan dit profiel.
 
-    Door de scope-migratie kreeg bestaande sprong_invoer het label van het profiel dat
-    tóén gekoppeld was. Een invoerrij hoort bij het profiel dat de wedstrijd bezit: als
-    er invoer bestaat voor een wedstrijd die dit profiel heeft, maar die onder een ander
-    profiel staat dat die wedstrijd níét bezit, verhuizen we hem naar dit profiel.
+    De invoer van vóór multi-profiel had geen profiel; de scope-migratie plakte er het
+    toen-gekoppelde profiel op. Zulke rijen staan op `profiel_onzeker = True`. Een
+    invoerrij hoort bij het profiel dat de wedstrijd bezit; kijk je naar een profiel dat
+    deze wedstrijd heeft gesprongen, dan claimen we de onzekere invoer daarvoor —
+    óók bij wedstrijden die met een ander profiel gedeeld zijn. Zodra geclaimd staat de
+    rij op `profiel_onzeker = False` en wordt hij nooit meer automatisch verplaatst.
+    Nieuwe, expliciet ingevoerde data (False) blijft altijd ongemoeid.
     """
     kandidaten = session.scalars(
         select(SprongInvoer).where(
             SprongInvoer.user_id == user_id,
-            SprongInvoer.pbholland_id != pid,
+            SprongInvoer.profiel_onzeker.is_(True),
             SprongInvoer.id_wedstrijd.in_(
                 select(PbhWedstrijd.id_wedstrijd).where(
                     PbhWedstrijd.user_id == user_id,
@@ -229,18 +232,11 @@ def _reclaim_invoer(session: Session, user_id: int, pid: int) -> None:
         return
     gewijzigd = False
     for si in kandidaten:
-        # Bezit het huidige (andere) profiel deze wedstrijd óók? Dan is het niet zeker
-        # van wie de invoer is (gedeelde wedstrijd) → laten staan.
-        ander_heeft = session.scalar(
-            select(func.count(PbhWedstrijd.id)).where(
-                PbhWedstrijd.user_id == user_id,
-                PbhWedstrijd.pbholland_id == si.pbholland_id,
-                PbhWedstrijd.id_wedstrijd == si.id_wedstrijd,
-            )
-        )
-        if ander_heeft:
+        if si.pbholland_id == pid:
+            si.profiel_onzeker = False  # al op het juiste profiel → bevestigen
+            gewijzigd = True
             continue
-        # Niet verhuizen als het doelprofiel al invoer heeft op deze poging (botsing).
+        # Niet verhuizen als het doelprofiel hier al (bevestigde) invoer op heeft.
         botsing = session.scalar(
             select(func.count(SprongInvoer.id)).where(
                 SprongInvoer.user_id == user_id,
@@ -252,6 +248,7 @@ def _reclaim_invoer(session: Session, user_id: int, pid: int) -> None:
         if botsing:
             continue
         si.pbholland_id = pid
+        si.profiel_onzeker = False
         gewijzigd = True
     if gewijzigd:
         session.commit()
@@ -687,6 +684,7 @@ def zet_stok_invoer(
         session.add(rij)
     rij.stok_op_m = payload.stok_op_m
     rij.stok_uit_hand_m = payload.stok_uit_hand_m
+    rij.profiel_onzeker = False  # expliciet ingevoerd voor dit profiel → nooit auto-verplaatsen
     session.commit()
     return {"stok_op_m": rij.stok_op_m, "stok_uit_hand_m": rij.stok_uit_hand_m}
 

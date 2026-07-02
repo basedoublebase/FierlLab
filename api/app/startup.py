@@ -35,7 +35,9 @@ _TOEGEVOEGDE_KOLOMMEN: dict[str, dict[str, str]] = {
         "lijst_fetched_at": "TIMESTAMP",
         "klassement_fetched_at": "TIMESTAMP",
     },
-    "sprong_invoer": {"pbholland_id": "INTEGER"},
+    # DEFAULT TRUE zet bestaande (historische) invoer op 'profiel onzeker'; nieuwe
+    # rijen via de ORM krijgen expliciet False.
+    "sprong_invoer": {"pbholland_id": "INTEGER", "profiel_onzeker": "BOOLEAN DEFAULT TRUE"},
 }
 
 # Alleen de handmatige invoer (stok op/uit hand) backfillen naar het huidige profiel;

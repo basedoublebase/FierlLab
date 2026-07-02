@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from sqlalchemy import Float, ForeignKey, Integer, UniqueConstraint
+from sqlalchemy import Boolean, Float, ForeignKey, Integer, UniqueConstraint
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.db import Base
@@ -26,3 +26,7 @@ class SprongInvoer(Base):
     poging_index: Mapped[int] = mapped_column(Integer)
     stok_op_m: Mapped[float | None] = mapped_column(Float, nullable=True)
     stok_uit_hand_m: Mapped[float | None] = mapped_column(Float, nullable=True)
+    # True voor de historische batch (van vóór multi-profiel) die verkeerd gelabeld
+    # kan zijn; die mag automatisch worden toegewezen aan het bezittende profiel.
+    # Nieuwe, expliciet ingevoerde data is False en wordt nooit automatisch verplaatst.
+    profiel_onzeker: Mapped[bool] = mapped_column(Boolean, default=False)
