@@ -457,10 +457,22 @@ def wedstrijd_detail(
         )
     ).first()
 
+    # Aantal reeds opgeslagen sprongen; als dat 0 is terwijl de wedstrijd er wél
+    # zou moeten hebben (bv. een eerder lege uitslag die inmiddels gevuld is, of
+    # een verse wedstrijd), opnieuw ophalen zodat de terugval alsnog vult.
+    opgeslagen_sprongen = session.scalar(
+        select(func.count(PbhSprong.id)).where(
+            PbhSprong.user_id == user.id,
+            PbhSprong.pbholland_id == pid,
+            PbhSprong.id_wedstrijd == id_wedstrijd,
+        )
+    )
+    mist_sprongen = opgeslagen_sprongen == 0 and (wed is None or (wed.aantal_sprongen or 0) > 0)
     nodig = (
         wed is None
         or wed.detail_fetched_at is None
         or (_is_recent(wed.datum) and (nu - wed.detail_fetched_at) > _DETAIL_TTL)
+        or mist_sprongen
     )
     if nodig:
         try:
