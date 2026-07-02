@@ -38,15 +38,15 @@ _TOEGEVOEGDE_KOLOMMEN: dict[str, dict[str, str]] = {
     "sprong_invoer": {"pbholland_id": "INTEGER"},
 }
 
-# Bestaande cache-rijen horen bij het (enige) profiel dat de gebruiker tot nu toe
-# gekoppeld had → vul id_persoon aan vanuit de profielen-tabel.
+# Alleen de handmatige invoer (stok op/uit hand) backfillen naar het huidige profiel;
+# die is niet opnieuw te scrapen. De overige pbh-caches worden bij de reparatie
+# leeggegooid en per profiel opnieuw opgehaald (zie _repair_pbh_cache).
 _BACKFILL_PBHOLLAND_ID = [
-    "pbh_wedstrijd",
-    "pbh_sprong",
-    "pbh_klassement",
-    "pbh_profiel",
     "sprong_invoer",
 ]
+
+# Derived pbholland-cache die volledig opnieuw te scrapen is.
+_HERSCRAPEBARE_CACHE = ["pbh_wedstrijd", "pbh_sprong", "pbh_klassement", "pbh_profiel"]
 
 # Oude unique-constraints (zonder id_persoon) vervangen door versies mét id_persoon.
 # Nodig zodat twee gekoppelde profielen dezelfde wedstrijd kunnen delen.
@@ -102,19 +102,36 @@ def _backfill(bestaande_tabellen: set[str]) -> None:
                     f"WHERE pbholland_id IS NULL"
                 )
             )
-        # Verversbeleid overnemen naar het per-profiel PbhProfiel-record, zodat er
-        # niet meteen opnieuw gescrapet wordt na de upgrade.
-        if "pbh_profiel" in bestaande_tabellen:
-            conn.execute(
-                text(
-                    "UPDATE pbh_profiel SET "
-                    "lijst_fetched_at = (SELECT p.pbholland_lijst_fetched_at FROM profielen p "
-                    "WHERE p.user_id = pbh_profiel.user_id), "
-                    "klassement_fetched_at = (SELECT p.pbholland_klassement_fetched_at FROM profielen p "
-                    "WHERE p.user_id = pbh_profiel.user_id) "
-                    "WHERE lijst_fetched_at IS NULL"
-                )
+
+
+def _repair_pbh_cache(bestaande_tabellen: set[str]) -> None:
+    """Eenmalige reparatie van de scope-migratie.
+
+    De eerste backfill wees álle bestaande cache-rijen toe aan het profiel dat op dat
+    moment gekoppeld was. Wie vóór de upgrade al naar een ander profiel was gewisseld,
+    kreeg daardoor de data van het vorige profiel verkeerd gelabeld (bv. Hidde's profiel
+    dat Bas'-cijfers toont). Omdat deze cache volledig opnieuw te scrapen is, gooien we
+    de derived tabellen eenmalig leeg en resetten we het verversbeleid; elk profiel vult
+    zich daarna vanzelf weer correct. De handmatige invoer (sprong_invoer) blijft staan.
+    """
+    with engine.begin() as conn:
+        conn.execute(text("CREATE TABLE IF NOT EXISTS pbh_migratie (sleutel VARCHAR(64) PRIMARY KEY)"))
+        gedaan = conn.execute(
+            text("SELECT 1 FROM pbh_migratie WHERE sleutel = 'reset_scope_v1'")
+        ).first()
+        if gedaan is not None:
+            return
+        for tabel in _HERSCRAPEBARE_CACHE:
+            if tabel in bestaande_tabellen:
+                conn.execute(text(f"DELETE FROM {tabel}"))
+        # Verversmarkers wissen zodat de lijst/klassement opnieuw worden opgehaald.
+        conn.execute(
+            text(
+                "UPDATE profielen SET pbholland_lijst_fetched_at = NULL, "
+                "pbholland_klassement_fetched_at = NULL"
             )
+        )
+        conn.execute(text("INSERT INTO pbh_migratie (sleutel) VALUES ('reset_scope_v1')"))
 
 
 def _migreer_constraints(inspector, bestaande_tabellen: set[str]) -> None:
@@ -155,6 +172,7 @@ async def lifespan(_: FastAPI):
     inspector = inspect(engine)
     bestaande_tabellen = set(inspector.get_table_names())
     _ensure_columns(inspector, bestaande_tabellen)
+    _repair_pbh_cache(bestaande_tabellen)
     _backfill(bestaande_tabellen)
     # Inspector opnieuw ophalen: de kolommen zijn zojuist toegevoegd.
     _migreer_constraints(inspect(engine), bestaande_tabellen)
