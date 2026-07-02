@@ -130,8 +130,14 @@ export async function fetchProfiel(): Promise<Profiel> {
 }
 
 export async function updateProfiel(payload: Partial<Profiel>): Promise<Profiel> {
+  const vorigePbhId = profielCache?.data.pbholland_id ?? null;
   const data = await jsonRequest<Profiel>("/profiel", "PUT", payload);
   profielCache = { data, ts: Date.now() };
+  // Wisselen / (ont)koppelen van pbholland-profiel → alle pbholland-caches leegmaken,
+  // zodat statistieken/wedstrijden meteen de nieuwe persoon tonen.
+  if (data.pbholland_id !== vorigePbhId) {
+    invalidatePbhCaches();
+  }
   return data;
 }
 

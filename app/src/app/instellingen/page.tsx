@@ -14,7 +14,6 @@ import {
   fetchGekoppeldeProfielen,
   fetchProfiel,
   fetchSchansen,
-  invalidatePbhCaches,
   previewPbhProfiel,
   updateProfiel,
   updateSchans,
@@ -186,7 +185,6 @@ export default function InstellingenPage() {
         pbholland_id: pbhPreview.id_persoon,
         naam: pbhPreview.naam,
       });
-      invalidatePbhCaches();
       setProfiel(bijgewerkt);
       setNaam(bijgewerkt.naam);
       setPbhInvoer("");
@@ -209,7 +207,6 @@ export default function InstellingenPage() {
     setMelding(null);
     try {
       const bijgewerkt = await updateProfiel({ pbholland_id: doel.id_persoon, naam: doel.naam });
-      invalidatePbhCaches();
       setProfiel(bijgewerkt);
       setNaam(bijgewerkt.naam);
       await laadGekoppelde();
@@ -226,7 +223,6 @@ export default function InstellingenPage() {
     setPbhFout(null);
     try {
       const bijgewerkt = await updateProfiel({ pbholland_id: null });
-      invalidatePbhCaches();
       setProfiel(bijgewerkt);
       setMelding("pbholland-profiel ontkoppeld. De opgeslagen data blijft bewaard.");
     } catch (e) {
