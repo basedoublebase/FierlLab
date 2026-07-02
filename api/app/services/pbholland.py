@@ -413,6 +413,7 @@ def haal_wedstrijden(id_persoon: int, naam_hint: str | None = None) -> dict:
                     "verste_afstand": r["verste_afstand"],
                     "plaats_finale": r["plaats_finale"],
                     "aantal_sprongen": len(r["sprongen"]),
+                    "sprongen": r["sprongen"],
                     "gemiddelde": round(sum(geldige) / len(geldige), 2) if geldige else None,
                 }
             )
@@ -449,6 +450,28 @@ def parse_meetgegevens(pagina: str) -> dict:
 def _attempt_label(index: int) -> str:
     # Eerste 3 = voorronde, daarna finale (zelfde indeling als pbholland).
     return f"Poging {index + 1}" if index < 3 else f"Finale {index - 2}"
+
+
+def pogingen_uit_afstanden(afstanden: list[float]) -> list[dict]:
+    """Terugval: distance-only pogingen uit de resultatenlijst.
+
+    Voor verse wedstrijden waar 'uitslaginfo' nog geen per-sprong detail heeft.
+    Tijd/wind/afwijking/landingsplaats blijven leeg tot dat detail verschijnt.
+    """
+    pogingen: list[dict] = []
+    for i, a in enumerate(afstanden):
+        geldig = bool(a and a > 0)
+        pogingen.append({
+            "label": _attempt_label(i),
+            "afstand": a if geldig else None,
+            "geldig": geldig,
+            "id_meetgegevens": None,
+            "tijd": None,
+            "tijd_schatting": None,
+            "afwijking": None,
+            "landingsplaats": None,
+        })
+    return pogingen
 
 
 # Mediaan tussentijd tussen opeenvolgende sprongen (uit data-analyse: ~20 min).

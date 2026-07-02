@@ -464,15 +464,28 @@ def wedstrijd_detail(
     )
     if nodig:
         try:
-            detail = pbholland.haal_wedstrijd_detail(id_wedstrijd, profiel.pbholland_id)
             lijst = pbholland.haal_wedstrijden(profiel.pbholland_id, profiel.naam or None)
-        except KeyError as exc:
-            raise HTTPException(status_code=404, detail="Geen sprongen van jou in deze wedstrijd gevonden.") from exc
         except httpx.HTTPError as exc:
             if wed is None:
                 raise HTTPException(status_code=503, detail="pbholland.com is tijdelijk niet bereikbaar.") from exc
-        else:
+            lijst = None
+        if lijst is not None:
             meta = next((w for w in lijst["wedstrijden"] if w["id_wedstrijd"] == id_wedstrijd), None)
+            # uitslaginfo geeft de rijke sprongtabel (tijd/afwijking/meetgegevens).
+            # Bij verse wedstrijden staat die er nog niet → terugval op de afstanden
+            # uit de resultatenlijst, zodat de pogingen tóch meteen zichtbaar zijn.
+            detail = None
+            try:
+                detail = pbholland.haal_wedstrijd_detail(id_wedstrijd, profiel.pbholland_id)
+            except (KeyError, httpx.HTTPError):
+                detail = None
+            pogingen = detail["pogingen"] if (detail and detail["pogingen"]) else None
+            if pogingen is None and meta and meta.get("sprongen"):
+                pogingen = pbholland.pogingen_uit_afstanden(meta["sprongen"])
+
+            if wed is None and meta is None and pogingen is None:
+                raise HTTPException(status_code=404, detail="Geen sprongen van jou in deze wedstrijd gevonden.")
+
             if wed is None:
                 wed = PbhWedstrijd(
                     user_id=user.id, pbholland_id=pid, id_wedstrijd=id_wedstrijd,
@@ -485,27 +498,31 @@ def wedstrijd_detail(
                 wed.verste_afstand = meta["verste_afstand"]; wed.plaats_finale = meta["plaats_finale"]
                 wed.aantal_sprongen = meta["aantal_sprongen"]; wed.gemiddelde = meta["gemiddelde"]
                 wed.fetched_at = nu
-            wed.positie = detail["positie"]
-            wed.beste = detail["beste"]
+            if detail:
+                wed.positie = detail["positie"]; wed.beste = detail["beste"]
+            elif meta:
+                wed.positie = meta["plaats_finale"]; wed.beste = meta["verste_afstand"]
             wed.detail_fetched_at = nu
-            # Sprongen vervangen.
-            for oud in session.scalars(
-                select(PbhSprong).where(
-                    PbhSprong.user_id == user.id,
-                    PbhSprong.pbholland_id == pid,
-                    PbhSprong.id_wedstrijd == id_wedstrijd,
-                )
-            ).all():
-                session.delete(oud)
-            session.flush()
-            for i, p in enumerate(detail["pogingen"]):
-                session.add(PbhSprong(
-                    user_id=user.id, pbholland_id=pid, id_wedstrijd=id_wedstrijd, poging_index=i,
-                    label=p["label"], afstand=p["afstand"], geldig=p["geldig"],
-                    id_meetgegevens=p["id_meetgegevens"], tijd=p["tijd"],
-                    tijd_schatting=p["tijd_schatting"], afwijking=p["afwijking"],
-                    landingsplaats=p["landingsplaats"],
-                ))
+            # Sprongen alleen vervangen als we echt pogingen hebben; zo wist een
+            # tijdelijk lege uitslag geen eerder opgehaalde (rijkere) data.
+            if pogingen:
+                for oud in session.scalars(
+                    select(PbhSprong).where(
+                        PbhSprong.user_id == user.id,
+                        PbhSprong.pbholland_id == pid,
+                        PbhSprong.id_wedstrijd == id_wedstrijd,
+                    )
+                ).all():
+                    session.delete(oud)
+                session.flush()
+                for i, p in enumerate(pogingen):
+                    session.add(PbhSprong(
+                        user_id=user.id, pbholland_id=pid, id_wedstrijd=id_wedstrijd, poging_index=i,
+                        label=p["label"], afstand=p["afstand"], geldig=p["geldig"],
+                        id_meetgegevens=p["id_meetgegevens"], tijd=p["tijd"],
+                        tijd_schatting=p["tijd_schatting"], afwijking=p["afwijking"],
+                        landingsplaats=p["landingsplaats"],
+                    ))
             session.commit()
 
     if wed is None:
