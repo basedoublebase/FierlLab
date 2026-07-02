@@ -107,12 +107,11 @@ export default function InstellingenPage() {
 
   useEffect(() => {
     let actief = true;
-    Promise.all([fetchProfiel(), fetchSchansen(), fetchGekoppeldeProfielen()])
-      .then(([p, s, g]) => {
+    Promise.all([fetchProfiel(), fetchSchansen()])
+      .then(([p, s]) => {
         if (!actief) return;
         setProfiel(p);
         setSchansen(s);
-        setGekoppeld(g.profielen);
         setNaam(p.naam);
         setGeboortejaar(p.geboortejaar?.toString() ?? "");
         setMassa(p.massa_kg.toString());
@@ -126,9 +125,13 @@ export default function InstellingenPage() {
       .finally(() => {
         if (actief) setLaden(false);
       });
+    // Optionele snelwissel-lijst: apart en niet-blokkerend, zodat een ontbrekend
+    // endpoint (bv. backend nog niet herstart) de pagina niet laat falen.
+    laadGekoppelde();
     return () => {
       actief = false;
     };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   async function bewaarProfiel(e: React.FormEvent) {
