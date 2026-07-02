@@ -205,6 +205,58 @@ def gekoppelde_profielen(user: CurrentUser, session: Session = Depends(get_db_se
     }
 
 
+def _reclaim_invoer(session: Session, user_id: int, pid: int) -> None:
+    """Verweesde eigen invoer (stok op / uit hand) terugclaimen voor het actieve profiel.
+
+    Door de scope-migratie kreeg bestaande sprong_invoer het label van het profiel dat
+    tóén gekoppeld was. Een invoerrij hoort bij het profiel dat de wedstrijd bezit: als
+    er invoer bestaat voor een wedstrijd die dit profiel heeft, maar die onder een ander
+    profiel staat dat die wedstrijd níét bezit, verhuizen we hem naar dit profiel.
+    """
+    kandidaten = session.scalars(
+        select(SprongInvoer).where(
+            SprongInvoer.user_id == user_id,
+            SprongInvoer.pbholland_id != pid,
+            SprongInvoer.id_wedstrijd.in_(
+                select(PbhWedstrijd.id_wedstrijd).where(
+                    PbhWedstrijd.user_id == user_id,
+                    PbhWedstrijd.pbholland_id == pid,
+                )
+            ),
+        )
+    ).all()
+    if not kandidaten:
+        return
+    gewijzigd = False
+    for si in kandidaten:
+        # Bezit het huidige (andere) profiel deze wedstrijd óók? Dan is het niet zeker
+        # van wie de invoer is (gedeelde wedstrijd) → laten staan.
+        ander_heeft = session.scalar(
+            select(func.count(PbhWedstrijd.id)).where(
+                PbhWedstrijd.user_id == user_id,
+                PbhWedstrijd.pbholland_id == si.pbholland_id,
+                PbhWedstrijd.id_wedstrijd == si.id_wedstrijd,
+            )
+        )
+        if ander_heeft:
+            continue
+        # Niet verhuizen als het doelprofiel al invoer heeft op deze poging (botsing).
+        botsing = session.scalar(
+            select(func.count(SprongInvoer.id)).where(
+                SprongInvoer.user_id == user_id,
+                SprongInvoer.pbholland_id == pid,
+                SprongInvoer.id_wedstrijd == si.id_wedstrijd,
+                SprongInvoer.poging_index == si.poging_index,
+            )
+        )
+        if botsing:
+            continue
+        si.pbholland_id = pid
+        gewijzigd = True
+    if gewijzigd:
+        session.commit()
+
+
 def _gekoppeld_profiel(user, session: Session) -> Profiel:
     profiel = session.scalars(select(Profiel).where(Profiel.user_id == user.id)).first()
     if profiel is None or not profiel.pbholland_id:
@@ -212,6 +264,7 @@ def _gekoppeld_profiel(user, session: Session) -> Profiel:
             status_code=422,
             detail="Nog geen pbholland-profiel gekoppeld. Koppel je profiel bij Instellingen.",
         )
+    _reclaim_invoer(session, user.id, profiel.pbholland_id)
     return profiel
 
 
