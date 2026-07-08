@@ -13,9 +13,12 @@ from __future__ import annotations
 import html
 import re
 import time
-from datetime import date
+from datetime import date, datetime
+from zoneinfo import ZoneInfo
 
 import httpx
+
+_NL_TZ = ZoneInfo("Europe/Amsterdam")
 
 BASE = "https://www.pbholland.com/index.php"
 
@@ -345,8 +348,66 @@ def _parse_nl_datum(tekst: str) -> str | None:
 _aankomend_cache: dict[int, tuple[list[dict], float]] = {}
 
 
+def _agenda_wedstrijden() -> list[dict]:
+    """Wedstrijden uit de 'Komende wedstrijden'-agendawidget (id + datum/tijd/plaats/naam).
+
+    De agenda toont óók een wedstrijd van vandaag, terwijl die uit
+    'springer_aangemeldvoorwedstrijden' verdwijnt zodra de inschrijving sluit.
+    """
+    pagina = _haal(f"{BASE}/agenda/")
+    i = pagina.find("Komende wedstrijden")
+    seg = pagina[i:] if i != -1 else pagina
+    out: list[dict] = []
+    for m in re.finditer(
+        r"id_wedstrijd=(\d+)&nm=[^']*'>.*?<table class='widget-agenda[^']*'>(.*?)</table>",
+        seg,
+        re.S,
+    ):
+        cellen = [_strip(c) for c in re.findall(r"<td[^>]*>(.*?)</td>", m.group(2), re.S)]
+        if not cellen:
+            continue
+        tijd_m = re.search(r"\d{1,2}:\d{2}", cellen[1]) if len(cellen) > 1 else None
+        out.append({
+            "id_wedstrijd": int(m.group(1)),
+            "datum_kort": cellen[0].lower(),  # bv. '08 juli'
+            "tijd": tijd_m.group() if tijd_m else None,
+            "wedstrijd": cellen[2] if len(cellen) > 2 else "",
+            "plaats": cellen[3] if len(cellen) > 3 else "",
+        })
+    return out
+
+
+def _vandaag_uit_agenda(id_persoon: int) -> list[dict]:
+    """Wedstrijden van vandaag waar de springer op de deelnemerslijst staat.
+
+    Vangt het gat op wanneer een wedstrijd van vandaag al uit 'aangemeld' is gevallen.
+    """
+    vandaag = datetime.now(_NL_TZ).date()
+    maand = {v: k for k, v in _MAANDEN.items()}[vandaag.month]
+    varianten = {f"{vandaag.day} {maand}", f"{vandaag.day:02d} {maand}"}
+    out: list[dict] = []
+    for w in _agenda_wedstrijden():
+        if w["datum_kort"] not in varianten:
+            continue
+        try:
+            deelnemers = _haal(f"{BASE}/deelnemers/?id_wedstrijd={w['id_wedstrijd']}")
+        except httpx.HTTPError:
+            continue
+        if f"id_persoon={id_persoon}" not in deelnemers:
+            continue
+        out.append({
+            "id_wedstrijd": w["id_wedstrijd"],
+            "datum": vandaag.isoformat(),
+            "tijd": w["tijd"],
+            "plaats": w["plaats"],
+            "wedstrijd": w["wedstrijd"],
+        })
+    return out
+
+
 def haal_aankomend(id_persoon: int, naam_hint: str | None = None) -> list[dict]:
-    """Aankomende wedstrijden waarvoor de springer is aangemeld."""
+    """Aankomende wedstrijden: waar de springer is aangemeld, plus die van vandaag
+    (die uit 'aangemeld' vallen zodra de inschrijving sluit) via de agenda + deelnemerslijst."""
     cached = _aankomend_cache.get(id_persoon)
     if cached is not None and cached[1] > time.monotonic():
         return cached[0]
@@ -374,6 +435,16 @@ def haal_aankomend(id_persoon: int, naam_hint: str | None = None) -> list[dict]:
                 "plaats": cellen[3],
                 "wedstrijd": cellen[4],
             })
+
+    # Wedstrijd van vandaag (inschrijving gesloten → uit 'aangemeld' gevallen) toevoegen.
+    try:
+        bestaande_ids = {w["id_wedstrijd"] for w in aankomend}
+        for w in _vandaag_uit_agenda(id_persoon):
+            if w["id_wedstrijd"] not in bestaande_ids:
+                aankomend.append(w)
+    except httpx.HTTPError:
+        pass  # agenda is aanvullend; laat 'aankomend' niet falen
+    aankomend.sort(key=lambda w: (w["datum"] or "9999-99-99", w.get("tijd") or ""))
 
     if len(_aankomend_cache) > 200:
         _aankomend_cache.clear()

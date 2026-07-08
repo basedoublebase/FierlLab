@@ -445,7 +445,7 @@ def aankomend(user: CurrentUser, session: Session = Depends(get_db_session)) -> 
         lijst = pbholland.haal_aankomend(profiel.pbholland_id, profiel.naam or None)
     except httpx.HTTPError as exc:
         raise HTTPException(status_code=503, detail="pbholland.com is tijdelijk niet bereikbaar.") from exc
-    vandaag = date.today().isoformat()
+    vandaag = datetime.now(_NL_TZ).date().isoformat()
     return {"vandaag": vandaag, "wedstrijden": lijst}
 
 
