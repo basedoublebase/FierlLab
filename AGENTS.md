@@ -4,7 +4,7 @@
 
 FierlLab is een web-app voor fierljeppers/polsstokverspringers om sprongresultaten bij te
 houden, met automatische winddata en een fysica-gebaseerd theoretisch maximum. Gebouwd
-voor de gebruiker die deze taken aanmeldt; gelijkenis met de N-is-1-app.
+Persoonlijke web-app voor polsstokverspringen/fierljeppen; gelijkenis met de N-is-1-app.
 
 ## Mappenstructuur
 
