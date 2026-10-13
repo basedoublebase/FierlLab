@@ -15,22 +15,44 @@ api/   FastAPI backend (Railway) — profiel, schansen, wedstrijden, pogingen, w
 
 ## Lokaal draaien
 
-1. **Backend**:
+Vereist: Python 3.11 of hoger (zie `api/pyproject.toml`) en Node.js.
+
+1. **Backend** — voer dit uit vanuit de repositorymap.
+
+   PowerShell:
    ```powershell
    cd api
    pip install -e .
-   $env:SUPABASE_URL = "https://xxxx.supabase.co"
-   $env:SUPABASE_ANON_KEY = "sb_publishable_..."
+   $env:SUPABASE_URL = "<jouw waarde>"
+   $env:SUPABASE_ANON_KEY = "<jouw waarde>"
    python -m uvicorn app.main:app --port 8021
    ```
-2. **Frontend**:
-   ```powershell
+   bash/zsh:
+   ```sh
+   cd api
+   pip install -e .
+   export SUPABASE_URL="<jouw waarde>"
+   export SUPABASE_ANON_KEY="<jouw waarde>"
+   python -m uvicorn app.main:app --port 8021
+   ```
+2. **Frontend** — open een tweede terminal vanuit de repositorymap:
+   ```sh
    cd app
    npm install
-   # .env.local bevat de Supabase-waarden (zie .env.local.example)
    npm run dev -- -p 3021
    ```
-3. Open http://localhost:3021, registreer een account en log in.
+   De frontend draait op poort 3021 en verwacht de backend op poort 8021.
+   Open daarna http://localhost:3021. Zet frontendvariabelen in `app/.env.local`; zie [`app/.env.local.example`](app/.env.local.example).
+
+Omgevingsvariabelen (alleen namen; vul je eigen waarden in):
+| Onderdeel | Variabele | Verplicht | Doel |
+| --- | --- | --- | --- |
+| Backend | `SUPABASE_URL` | Ja, voor tokenverificatie | Supabase Auth-URL. |
+| Backend | `SUPABASE_ANON_KEY` | Ja, voor tokenverificatie | Supabase Auth-verzoek. |
+| Backend | `FIERLLAB_DATABASE_URL` | Nee | Database-URL; standaard `sqlite:///./fierllab.db`. |
+| Frontend | `NEXT_PUBLIC_SUPABASE_URL` | Ja | Supabase-client en server-auth. |
+| Frontend | `NEXT_PUBLIC_SUPABASE_ANON_KEY` | Ja | Supabase-client en server-auth. |
+| Frontend | `FIERLLAB_BACKEND_URL` | Nee | Backend-URL; standaard `http://127.0.0.1:8021`. |
 
 ## Deploy
 
