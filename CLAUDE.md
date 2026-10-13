@@ -76,6 +76,7 @@ cd api && pip install -e . && python -m uvicorn app.main:app --port 8021
 
 # Frontend (poort 3021)
 cd app && npm install && npm run dev -- -p 3021
+cd app && npm run typecheck
 ```
 
 Env vars — `app/.env.local` (bestaat al, met echte waarden):
