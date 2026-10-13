@@ -79,3 +79,11 @@ Omgevingsvariabelen (alleen namen; vul je eigen waarden in):
 - [ ] Fase 3 — pbholland.com import (wedstrijden + profiel)
 - [ ] Fase 4 — uitgebreidere statistieken
 - [ ] Fase 5 — exacte fysica-formules uit de Excel van de gebruiker
+
+## Tests en controles
+
+Voer deze commando's vanuit `app/` uit. Op dit moment zijn de bijbehorende scripts
+niet ingesteld in `app/package.json`, dus de commando's zijn nog niet uitvoerbaar:
+
+- Tests: `npm test`
+- Typecontrole: `npm run typecheck`
