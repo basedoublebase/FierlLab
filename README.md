@@ -82,8 +82,9 @@ Omgevingsvariabelen (alleen namen; vul je eigen waarden in):
 
 ## Tests en controles
 
-Voer deze commando's vanuit `app/` uit. Op dit moment zijn de bijbehorende scripts
-niet ingesteld in `app/package.json`, dus de commando's zijn nog niet uitvoerbaar:
+Voer de commando's vanuit `app/` uit. `app/package.json` bevat geen `test`-script,
+dus `npm test` kan daar niet als tests-script worden uitgevoerd. Het script
+`typecheck` voert `tsc --noEmit` uit:
 
-- Tests: `npm test`
+- Tests: `npm test` (script ontbreekt momenteel)
 - Typecontrole: `npm run typecheck`
